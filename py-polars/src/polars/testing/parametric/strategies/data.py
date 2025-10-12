@@ -74,6 +74,14 @@ if TYPE_CHECKING:
     from polars._typing import PolarsDataType, SchemaDict, TimeUnit
     from polars.datatypes import DataType, DataTypeClass
 
+_MIN_TD_US = timedelta(microseconds=I64_MIN)
+
+_MAX_TD_US = timedelta(microseconds=I64_MAX)
+
+_MIN_TD_NS = timedelta(microseconds=I64_MIN // 1000)
+
+_MAX_TD_NS = timedelta(microseconds=I64_MAX // 1000)
+
 _DEFAULT_LIST_LEN_LIMIT = 3
 _DEFAULT_N_CATEGORIES = 10
 
@@ -205,26 +213,22 @@ def durations(time_unit: TimeUnit = "us") -> SearchStrategy[timedelta]:
         Time unit for which the timedelta objects are valid.
     """
     if time_unit == "us":
-        return st.timedeltas(
-            min_value=timedelta(microseconds=I64_MIN),
-            max_value=timedelta(microseconds=I64_MAX),
-        )
+        min_td = _MIN_TD_US
+        max_td = _MAX_TD_US
     elif time_unit == "ns":
-        return st.timedeltas(
-            min_value=timedelta(microseconds=I64_MIN // 1000),
-            max_value=timedelta(microseconds=I64_MAX // 1000),
-        )
+        min_td = _MIN_TD_NS
+        max_td = _MAX_TD_NS
     elif time_unit == "ms":
         # TODO: Enable full range of millisecond durations
         # timedelta.min/max fall within the range
         # return st.timedeltas()
-        return st.timedeltas(
-            min_value=timedelta(microseconds=I64_MIN),
-            max_value=timedelta(microseconds=I64_MAX),
-        )
+        min_td = _MIN_TD_US
+        max_td = _MAX_TD_US
     else:
         msg = f"invalid time unit: {time_unit!r}"
         raise InvalidArgument(msg)
+    # Single point of st.timedeltas, avoids triple code repetition and function-call overhead
+    return st.timedeltas(min_value=min_td, max_value=max_td)
 
 
 def decimals(
