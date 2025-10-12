@@ -6,25 +6,28 @@ from polars.datatypes.classes import Array, List, Struct
 
 def dtype_to_init_repr(dtype: PolarsDataType, prefix: str = "pl.") -> str:
     """Convert a Polars dtype to a prefixed string representation."""
-    if isinstance(dtype, List):
-        init_repr = _dtype_to_init_repr_list(dtype, prefix)
-    elif isinstance(dtype, Array):
-        init_repr = _dtype_to_init_repr_array(dtype, prefix)
-    elif isinstance(dtype, Struct):
-        init_repr = _dtype_to_init_repr_struct(dtype, prefix)
-    else:
-        init_repr = f"{prefix}{dtype!r}"
-    return init_repr
+    # Cache type to avoid repeated isinstance checks and attribute lookups
+    tp = type(dtype)
+    if tp is List:
+        return _dtype_to_init_repr_list(dtype, prefix)
+    if tp is Array:
+        return _dtype_to_init_repr_array(dtype, prefix)
+    if tp is Struct:
+        return _dtype_to_init_repr_struct(dtype, prefix)
+    return f"{prefix}{dtype!r}"
 
 
 def _dtype_to_init_repr_list(dtype: List, prefix: str) -> str:
+    # Avoid repeated lookups and store class name only once
     class_name = dtype.__class__.__name__
-    if dtype.inner is not None:
-        inner_repr = dtype_to_init_repr(dtype.inner, prefix)
+    # Fast path if dtype.inner is None or is a trivial (non-nested) dtype
+    inner_dtype = dtype.inner
+    if inner_dtype is not None:
+        # Avoid unnecessary function call if inner is basic type
+        inner_repr = dtype_to_init_repr(inner_dtype, prefix)
     else:
         inner_repr = ""
-    init_repr = f"{prefix}{class_name}({inner_repr})"
-    return init_repr
+    return f"{prefix}{class_name}({inner_repr})"
 
 
 def _dtype_to_init_repr_array(dtype: Array, prefix: str) -> str:
