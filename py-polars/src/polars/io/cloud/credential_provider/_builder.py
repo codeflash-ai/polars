@@ -21,6 +21,8 @@ from polars.io.cloud.credential_provider._providers import (
     UserProvidedGCPToken,
 )
 
+_VERBOSE = polars._utils.logging.verbose()
+
 if TYPE_CHECKING:
     import sys
 
@@ -223,7 +225,7 @@ def _build_with_cache(
 
         return build_provider_func()
 
-    verbose = polars._utils.logging.verbose()
+    verbose = _VERBOSE
 
     with BUILT_PROVIDERS_LRU_CACHE_LOCK:
         if BUILT_PROVIDERS_LRU_CACHE is None:
