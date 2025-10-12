@@ -41,6 +41,26 @@ else:  # pragma: no cover
     NoneType = type(None)
     UnionType = UnionTypeOld
 
+_INT64 = Int64()
+
+_FLOAT64 = Float64()
+
+_STRING = String()
+
+_BOOLEAN = Boolean()
+
+_DATETIME_US = Datetime("us")
+
+_DATE = Date()
+
+_TIME = Time()
+
+_OBJECT = Object()
+
+_NULL = Null()
+
+_BINARY = Binary()
+
 
 def parse_into_datatype_expr(input: Any) -> pl.DataTypeExpr:
     """Parse an input into a DataTypeExpr."""
@@ -80,58 +100,74 @@ def try_parse_into_dtype(input: Any) -> PolarsDataType | None:
 @functools.lru_cache(16)
 def parse_py_type_into_dtype(input: PythonDataType | type[object]) -> PolarsDataType:
     """Convert Python data type to Polars data type."""
+    # Reordered for fastest short-circuiting by likelihood and Python type id comparison
     if input is int:
-        return Int64()
-    elif input is float:
-        return Float64()
-    elif input is str:
-        return String()
-    elif input is bool:
-        return Boolean()
-    elif isinstance(input, type) and issubclass(input, datetime):  # type: ignore[redundant-expr]
-        return Datetime("us")
-    elif isinstance(input, type) and issubclass(input, date):  # type: ignore[redundant-expr]
-        return Date()
-    elif input is timedelta:
-        return Duration
-    elif input is time:
-        return Time()
-    elif input is PyDecimal:
+        return _INT64
+    if input is float:
+        return _FLOAT64
+    if input is str:
+        return _STRING
+    if input is bool:
+        return _BOOLEAN
+    if input is bytes:
+        return _BINARY
+    if input is object:
+        return _OBJECT
+    if input is NoneType:
+        return _NULL
+    if input is PyDecimal:
         return Decimal
-    elif input is bytes:
-        return Binary()
-    elif input is object:
-        return Object()
-    elif input is NoneType:
-        return Null()
-    elif input is list or input is tuple:
+    if input is timedelta:
+        return Duration
+    if input is time:
+        return _TIME
+    if input is list or input is tuple:
         return List
-    elif isclass(input) and issubclass(input, enum.Enum):
+    # Cheaper than isclass(): only call if actually a type
+    if isinstance(input, type):
+        # type: ignore[redundant-expr] is kept for compatibility. May be unnecessary in static checking.
+        if issubclass(input, datetime):  # type: ignore[redundant-expr]
+            return _DATETIME_US
+        if issubclass(input, date):  # type: ignore[redundant-expr]
+            return _DATE
+
+    # Only use isclass if not a built-in type to avoid unnecessary expensive checks
+    # This avoids calling isclass for int, float, etc.
+    if isclass(input) and issubclass(input, enum.Enum):
         return Enum(input)
     # this is required as pass through. Don't remove
-    elif input == Unknown:
+    if input == Unknown:
         return Unknown
-    elif hasattr(input, "__origin__") and hasattr(input, "__args__"):
+    # Fast attribute checks to avoid calling hasattr twice
+    orig = getattr(input, "__origin__", None)
+    args = getattr(input, "__args__", None)
+    if orig is not None and args is not None:
         return _parse_generic_into_dtype(input)
-    else:
-        _raise_on_invalid_dtype(input)
+    _raise_on_invalid_dtype(input)
 
 
 def _parse_generic_into_dtype(input: Any) -> PolarsDataType:
     """Parse a generic type (from typing annotation) into a Polars data type."""
+    # Extract reference to reduce attribute lookups
     base_type = input.__origin__
-    if base_type not in (tuple, list):
+    if base_type is not tuple and base_type is not list:
         _raise_on_invalid_dtype(input)
 
     inner_types = input.__args__
-    inner_type = inner_types[0]
-    if len(inner_types) > 1:
-        all_equal = all(t in (inner_type, ...) for t in inner_types)
-        if not all_equal:
-            _raise_on_invalid_dtype(input)
 
-    inner_type = inner_types[0]
-    inner_dtype = parse_py_type_into_dtype(inner_type)
+    # Fast path for 1-type generic: List[int], Tuple[int], etc.
+    if len(inner_types) == 1:
+        inner_type = inner_types[0]
+        inner_dtype = parse_py_type_into_dtype(inner_type)
+        return List(inner_dtype)
+
+    # For >1 type generic: e.g., Tuple[int, ...], Tuple[int, int], Tuple[int, ...]
+    first_type = inner_types[0]
+    # Avoid generator and all(): use for-loop for short-circuit and better perf
+    for t in inner_types:
+        if t is not first_type and t is not ...:
+            _raise_on_invalid_dtype(input)
+    inner_dtype = parse_py_type_into_dtype(first_type)
     return List(inner_dtype)
 
 
@@ -189,7 +225,10 @@ def _parse_union_type_into_dtype(input: Any) -> PolarsDataType:
 
 def _raise_on_invalid_dtype(input: Any) -> NoReturn:
     """Raise an informative error if the input could not be parsed."""
-    input_type = input if type(input) is type else f"of type {type(input).__name__!r}"
-    input_detail = "" if type(input) is type else f" (given: {input!r})"
+    # Use type(input) is type - if so, print just input; otherwise, type name and repr for clarity
+    is_type = type(input) is type
+    input_type = input if is_type else f"of type '{type(input).__name__}'"
+    input_detail = "" if is_type else f" (given: {input!r})"
+    # Avoid f-string double-call
     msg = f"cannot parse input {input_type} into Polars data type{input_detail}"
     raise TypeError(msg) from None
