@@ -5,7 +5,6 @@ import os
 import re
 import sys
 import warnings
-from collections import Counter
 from collections.abc import (
     Collection,
     Generator,
@@ -259,11 +258,12 @@ def ordered_unique(values: Sequence[Any]) -> list[Any]:
 
 def deduplicate_names(names: Iterable[str]) -> list[str]:
     """Ensure name uniqueness by appending a counter to subsequent duplicates."""
-    seen: MutableMapping[str, int] = Counter()
+    seen: MutableMapping[str, int] = {}
     deduped = []
     for nm in names:
-        deduped.append(f"{nm}{seen[nm] - 1}" if nm in seen else nm)
-        seen[nm] += 1
+        count = seen.get(nm, 0)
+        deduped.append(f"{nm}{count - 1}" if count else nm)
+        seen[nm] = count + 1
     return deduped
 
 
