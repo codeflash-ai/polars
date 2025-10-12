@@ -3,6 +3,10 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING
 
+import polars._plr as plr
+
+_using_string_cache_func = plr.using_string_cache
+
 with contextlib.suppress(ImportError):  # Module not available when building docs
     import polars._plr as plr
     from polars._plr import PyStringCacheHolder
@@ -182,4 +186,4 @@ def disable_string_cache() -> None:
 
 def using_string_cache() -> bool:
     """Check whether the global string cache is enabled."""
-    return plr.using_string_cache()
+    return _using_string_cache_func()
