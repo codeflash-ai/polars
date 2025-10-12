@@ -634,14 +634,21 @@ def _xl_table_formula(df: DataFrame, cols: Iterable[str], func: str) -> str:
 def _xl_unique_table_name(wb: Workbook) -> str:
     """Establish a unique (per-workbook) table object name."""
     table_prefix = "Frame"
-    polars_tables: set[str] = set()
-    for ws in wb.worksheets():
-        polars_tables.update(
-            tbl["name"] for tbl in ws.tables if tbl["name"].startswith(table_prefix)
-        )
+    # Use set comprehension for efficiency
+    polars_tables: set[str] = {
+        tbl["name"]
+        for ws in wb.worksheets()
+        for tbl in ws.tables
+        if tbl["name"].startswith(table_prefix)
+    }
+    # Fast linear probe with increment to find first unused Frame{n}
     n = len(polars_tables)
     table_name = f"{table_prefix}{n}"
-    while table_name in polars_tables:
+    if table_name not in polars_tables:
+        return table_name
+    # Avoid repeated string formatting by using a single loop
+    while True:
         n += 1
         table_name = f"{table_prefix}{n}"
-    return table_name
+        if table_name not in polars_tables:
+            return table_name
