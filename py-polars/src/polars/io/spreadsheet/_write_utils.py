@@ -68,11 +68,15 @@ class _XLFormatCache:
         if not isinstance(fmt, dict):
             wbfmt = fmt
         else:
+            wbfmt = self._cache.get(id(fmt))
+            if wbfmt is not None:
+                return wbfmt
             key = self._key(fmt)
             wbfmt = self._cache.get(key)
             if wbfmt is None:
                 wbfmt = self.wb.add_format(fmt)
                 self._cache[key] = wbfmt
+            self._cache[id(fmt)] = wbfmt
         return wbfmt
 
 
