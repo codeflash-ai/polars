@@ -6,41 +6,22 @@ import re
 import sys
 import warnings
 from collections import Counter
-from collections.abc import (
-    Collection,
-    Generator,
-    Iterable,
-    MappingView,
-    Sequence,
-    Sized,
-)
+from collections.abc import (Collection, Generator, Iterable, MappingView,
+                             Sequence, Sized)
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Literal,
-    TypeVar,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar, overload
 
 import polars as pl
 from polars import functions as F
-from polars._dependencies import _check_for_numpy, import_optional, subprocess
+from polars._dependencies import _check_for_numpy, import_optional
 from polars._dependencies import numpy as np
-from polars.datatypes import (
-    Boolean,
-    Date,
-    Datetime,
-    Decimal,
-    Duration,
-    Int64,
-    String,
-    Time,
-)
+from polars._dependencies import subprocess
+from polars.datatypes import (Boolean, Date, Datetime, Decimal, Duration,
+                              Int64, String, Time)
 from polars.datatypes.group import FLOAT_DTYPES, INTEGER_DTYPES
+from typing_extensions import TypeGuard
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping, Reversible
@@ -98,17 +79,28 @@ def is_path_or_str_sequence(
     Note that a single string is a sequence of strings by definition, use
     `allow_str=False` to return False on a single string.
     """
+    # Fast path for string disallow
     if allow_str is False and isinstance(val, str):
         return False
+    # Fast path for numpy arrays using dtype
     elif _check_for_numpy(val) and isinstance(val, np.ndarray):
         return np.issubdtype(val.dtype, np.str_)
+    # Fast path for polars Series using dtype
     elif include_series and isinstance(val, pl.Series):
         return val.dtype == pl.String
-    return (
-        not isinstance(val, bytes)
-        and isinstance(val, Sequence)
-        and _is_iterable_of(val, (Path, str))
-    )
+    # Avoid iterating bytes objects
+    if isinstance(val, bytes):
+        return False
+    # Type check for container
+    if not isinstance(val, Sequence):
+        return False
+    # Fast path for tuple, list: short-circuit on first non-matching element
+    # This replaces the slow _is_iterable_of for commonly used Python containers
+    eltypes = (Path, str)
+    for x in val:
+        if not isinstance(x, eltypes):
+            return False
+    return True
 
 
 def is_bool_sequence(
