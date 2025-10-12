@@ -6,11 +6,12 @@ from polars.datatypes.classes import Array, List, Struct
 
 def dtype_to_init_repr(dtype: PolarsDataType, prefix: str = "pl.") -> str:
     """Convert a Polars dtype to a prefixed string representation."""
-    if isinstance(dtype, List):
+    cls = dtype.__class__
+    if cls is List:
         init_repr = _dtype_to_init_repr_list(dtype, prefix)
-    elif isinstance(dtype, Array):
+    elif cls is Array:
         init_repr = _dtype_to_init_repr_array(dtype, prefix)
-    elif isinstance(dtype, Struct):
+    elif cls is Struct:
         init_repr = _dtype_to_init_repr_struct(dtype, prefix)
     else:
         init_repr = f"{prefix}{dtype!r}"
