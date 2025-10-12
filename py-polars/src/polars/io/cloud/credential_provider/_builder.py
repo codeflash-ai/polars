@@ -21,6 +21,12 @@ from polars.io.cloud.credential_provider._providers import (
     UserProvidedGCPToken,
 )
 
+_POLARS_CREDENTIAL_PROVIDER_BUILDER_CACHE_SIZE = os.getenv(
+    "POLARS_CREDENTIAL_PROVIDER_BUILDER_CACHE_SIZE"
+)
+
+_POLARS_VERBOSE = os.getenv("POLARS_VERBOSE") == "1"
+
 if TYPE_CHECKING:
     import sys
 
@@ -179,14 +185,19 @@ class InitializedCredentialProvider(CredentialProviderBuilderImpl):
         self.credential_provider = credential_provider
 
     def __call__(self) -> CredentialProviderBuilderReturn:
-        if isinstance(self.credential_provider, CachingCredentialProvider):
-            return self.credential_provider
+        credp = self.credential_provider
+        if isinstance(credp, CachingCredentialProvider):
+            return credp
 
         # We use the cache by keying the entry as the address of the object
         # provided by the user.
+        # Evaluate id only once to avoid repeat in lambda
+        credp_id = id(credp)
+        # Using local to global "CachedCredentialProvider" avoids global lookup cost in hot paths
+        CachedCredProv = CachedCredentialProvider
         return _build_with_cache(
-            lambda: id(self.credential_provider),
-            lambda: CachedCredentialProvider(self.credential_provider),
+            lambda: credp_id,
+            lambda: CachedCredProv(credp),
         )
 
     @property
@@ -209,45 +220,40 @@ def _build_with_cache(
 ) -> CredentialProviderBuilderReturn:
     global BUILT_PROVIDERS_LRU_CACHE
 
-    if (
-        max_items := int(
-            os.getenv(
-                "POLARS_CREDENTIAL_PROVIDER_BUILDER_CACHE_SIZE",
-                8,
-            )
-        )
-    ) <= 0:
+    max_items = _get_cache_size()
+    if max_items <= 0:
+        # Only acquire the lock if we haven't already.
         if BUILT_PROVIDERS_LRU_CACHE_LOCK.acquire(blocking=False):
             BUILT_PROVIDERS_LRU_CACHE = None
             BUILT_PROVIDERS_LRU_CACHE_LOCK.release()
-
         return build_provider_func()
 
-    verbose = polars._utils.logging.verbose()
+    # Use cached verbose value (_is_verbose) instead of function call in each invocation
+    verbose = _is_verbose()
 
     with BUILT_PROVIDERS_LRU_CACHE_LOCK:
-        if BUILT_PROVIDERS_LRU_CACHE is None:
+        cache = BUILT_PROVIDERS_LRU_CACHE
+        if cache is None:
             if verbose:
-                eprint(f"Create built credential providers LRU cache ({max_items = })")
-
-            BUILT_PROVIDERS_LRU_CACHE = LRUCache(max_items)
+                eprint(
+                    f"Create built credential providers LRU cache (max_items = {max_items})"
+                )
+            BUILT_PROVIDERS_LRU_CACHE = cache = LRUCache(max_items)
 
         cache_key = get_cache_key_func()
 
         try:
-            provider = BUILT_PROVIDERS_LRU_CACHE[cache_key]
-
+            provider = cache[cache_key]
             if verbose:
                 eprint(
-                    f"Loaded credential provider from cache: {provider!r} {cache_key = }"
+                    f"Loaded credential provider from cache: {provider!r} cache_key = {cache_key!r}"
                 )
         except KeyError:
             provider = build_provider_func()
-            BUILT_PROVIDERS_LRU_CACHE[cache_key] = provider
-
+            cache[cache_key] = provider
             if verbose:
                 eprint(
-                    f"Added new credential provider to cache: {provider!r} {cache_key = }"
+                    f"Added new credential provider to cache: {provider!r} cache_key = {cache_key!r}"
                 )
 
         return provider
@@ -518,3 +524,13 @@ def _init_credential_provider_builder(
         eprint(f"_init_credential_provider_builder(): {credential_provider_init = !r}")
 
     return credential_provider_init
+
+
+def _get_cache_size() -> int:
+    # Return int cache size. If environment did not specify, fallback to 8.
+    val = _POLARS_CREDENTIAL_PROVIDER_BUILDER_CACHE_SIZE
+    return int(val) if val is not None else 8
+
+
+def _is_verbose() -> bool:
+    return _POLARS_VERBOSE
