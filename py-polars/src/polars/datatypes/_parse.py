@@ -41,6 +41,8 @@ else:  # pragma: no cover
     NoneType = type(None)
     UnionType = UnionTypeOld
 
+_NONE_PATTERN = re.compile(r"(^None \|)|(\| None$)")
+
 
 def parse_into_datatype_expr(input: Any) -> pl.DataTypeExpr:
     """Parse an input into a DataTypeExpr."""
@@ -158,7 +160,11 @@ def _parse_forward_ref_into_dtype(input: ForwardRef) -> PolarsDataType:
     annotation = input.__forward_arg__
 
     # Strip "optional" designation - Polars data types are always nullable
-    formatted = re.sub(r"(^None \|)|(\| None$)", "", annotation).strip()
+    # Avoid unnecessary .strip() and .sub() by checking if "None" is present before performing regex operation.
+    if "None" in annotation:
+        formatted = _NONE_PATTERN.sub("", annotation).strip()
+    else:
+        formatted = annotation
 
     try:
         return PY_TYPE_STR_TO_DTYPE[formatted]
@@ -189,7 +195,14 @@ def _parse_union_type_into_dtype(input: Any) -> PolarsDataType:
 
 def _raise_on_invalid_dtype(input: Any) -> NoReturn:
     """Raise an informative error if the input could not be parsed."""
-    input_type = input if type(input) is type else f"of type {type(input).__name__!r}"
-    input_detail = "" if type(input) is type else f" (given: {input!r})"
+    # Cache type(input) since it is used several times
+    input_t = type(input)
+    if input_t is type:
+        input_type = input
+        input_detail = ""
+    else:
+        tn = input_t.__name__
+        input_type = f"of type {tn!r}"
+        input_detail = f" (given: {input!r})"
     msg = f"cannot parse input {input_type} into Polars data type{input_detail}"
     raise TypeError(msg) from None
