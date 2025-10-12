@@ -93,12 +93,17 @@ def nt_unpack(obj: Any) -> Any:
 
 def contains_nested(value: Any, is_nested: Callable[[Any], bool]) -> bool:
     """Determine if value contains (or is) nested structured data."""
-    if is_nested(value):
-        return True
-    elif isinstance(value, dict):
-        return any(contains_nested(v, is_nested) for v in value.values())
-    elif isinstance(value, (list, tuple)):
-        return any(contains_nested(v, is_nested) for v in value)
+    # Use an explicit stack to avoid recursion overhead
+    stack = [value]
+    while stack:
+        current = stack.pop()
+        if is_nested(current):
+            return True
+        # Access .values() only if actually a dict (avoid isinstance() dict check cost for other types)
+        if type(current) is dict:
+            stack.extend(current.values())
+        elif type(current) is list or type(current) is tuple:
+            stack.extend(current)
     return False
 
 
