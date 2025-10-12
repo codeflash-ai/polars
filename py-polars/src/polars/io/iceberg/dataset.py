@@ -7,6 +7,8 @@ from functools import partial
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
+import pyiceberg.schema
+
 import polars._reexport as pl
 from polars._utils.logging import eprint, verbose
 from polars.exceptions import ComputeError
@@ -346,13 +348,20 @@ class IcebergDataset:
 
     def metadata_path(self) -> str:
         """Fetch the metadata path."""
-        if self._metadata_path is None:
-            if self._table is None:
-                msg = "impl error: both metadata_path and table are None"
-                raise ValueError(msg)
+        # Fast path: If _metadata_path already defined, return it immediately
+        metadata_path = self._metadata_path
+        if metadata_path is not None:
+            return metadata_path
 
-            self._metadata_path = self.table().metadata_location
+        # Avoid repeated attribute lookups for _table
+        table = self._table
+        if table is None:
+            msg = "impl error: both metadata_path and table are None"
+            raise ValueError(msg)
 
+        # Only compute table() if _metadata_path is not set
+        # _table is non-None here, so we use it directly and set _metadata_path
+        self._metadata_path = table.metadata_location
         return self._metadata_path
 
     def table(self) -> Table:
@@ -495,7 +504,7 @@ class _PyIcebergScanData(_ResolvedScanDataBase):
 
 def _redact_dict_values(obj: Any) -> Any:
     return (
-        {k: "REDACTED" for k in obj.keys()}  # noqa: SIM118
+        dict.fromkeys(obj.keys(), "REDACTED")
         if isinstance(obj, dict)
         else f"<{type(obj).__name__} object>"
         if obj is not None
