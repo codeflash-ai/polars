@@ -95,9 +95,9 @@ class CredentialProviderBuilder:
             If the built provider is an instance of `CachingCredentialProvider`,
             clears any cached credentials on that object.
         """
-        verbose = polars._utils.logging.verbose()
+        is_verbose = verbose()
 
-        if verbose:
+        if is_verbose:
             eprint(
                 "[CredentialProviderBuilder]: Begin initialize "
                 f"{self.credential_provider_init!r} "
@@ -106,7 +106,7 @@ class CredentialProviderBuilder:
 
         v = self.credential_provider_init()
 
-        if verbose:
+        if is_verbose:
             if v is not None:
                 eprint(
                     f"[CredentialProviderBuilder]: Initialized {v!r} "
@@ -121,7 +121,7 @@ class CredentialProviderBuilder:
         if clear_cached_credentials and isinstance(v, CachingCredentialProvider):
             v.clear_cached_credentials()
 
-            if verbose:
+            if is_verbose:
                 eprint(
                     f"[CredentialProviderBuilder]: Clear cached credentials for {v!r}"
                 )
