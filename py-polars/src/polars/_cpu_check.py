@@ -205,37 +205,43 @@ class CPUID:
 
 def _read_cpu_flags() -> dict[str, bool]:
     # CPU flags from https://en.wikipedia.org/wiki/CPUID
-    cpuid = CPUID()
-    cpuid1 = cpuid(1, 0)
-    cpuid7 = cpuid(7, 0)
-    cpuid81h = cpuid(0x80000001, 0)
-
-    return {
-        "sse3": bool(cpuid1.ecx & (1 << 0)),
-        "ssse3": bool(cpuid1.ecx & (1 << 9)),
-        "fma": bool(cpuid1.ecx & (1 << 12)),
-        "cmpxchg16b": bool(cpuid1.ecx & (1 << 13)),
-        "sse4.1": bool(cpuid1.ecx & (1 << 19)),
-        "sse4.2": bool(cpuid1.ecx & (1 << 20)),
-        "movbe": bool(cpuid1.ecx & (1 << 22)),
-        "popcnt": bool(cpuid1.ecx & (1 << 23)),
-        "pclmulqdq": bool(cpuid1.ecx & (1 << 1)),
-        "avx": bool(cpuid1.ecx & (1 << 28)),
-        "bmi1": bool(cpuid7.ebx & (1 << 3)),
-        "bmi2": bool(cpuid7.ebx & (1 << 8)),
-        "avx2": bool(cpuid7.ebx & (1 << 5)),
-        "lzcnt": bool(cpuid81h.ecx & (1 << 5)),
-    }
+    # Memoization cache to avoid redundant CPUID queries.
+    # Safe as CPU features are not expected to change during process lifetime.
+    if not hasattr(_read_cpu_flags, "_cached"):
+        cpuid = CPUID()
+        cpuid1 = cpuid(1, 0)
+        cpuid7 = cpuid(7, 0)
+        cpuid81h = cpuid(0x80000001, 0)
+        cached: dict[str, bool] = {
+            "sse3": bool(cpuid1.ecx & (1 << 0)),
+            "ssse3": bool(cpuid1.ecx & (1 << 9)),
+            "fma": bool(cpuid1.ecx & (1 << 12)),
+            "cmpxchg16b": bool(cpuid1.ecx & (1 << 13)),
+            "sse4.1": bool(cpuid1.ecx & (1 << 19)),
+            "sse4.2": bool(cpuid1.ecx & (1 << 20)),
+            "movbe": bool(cpuid1.ecx & (1 << 22)),
+            "popcnt": bool(cpuid1.ecx & (1 << 23)),
+            "pclmulqdq": bool(cpuid1.ecx & (1 << 1)),
+            "avx": bool(cpuid1.ecx & (1 << 28)),
+            "bmi1": bool(cpuid7.ebx & (1 << 3)),
+            "bmi2": bool(cpuid7.ebx & (1 << 8)),
+            "avx2": bool(cpuid7.ebx & (1 << 5)),
+            "lzcnt": bool(cpuid81h.ecx & (1 << 5)),
+        }
+        _read_cpu_flags._cached = cached
+    return _read_cpu_flags._cached
 
 
 def check_cpu_flags(feature_flags: str) -> None:
     if not feature_flags or os.environ.get("POLARS_SKIP_CPU_CHECK"):
         return
 
+    # This loop is not hot, but can be slightly optimized by avoiding unnecessary list comprehensions.
     expected_cpu_flags = [f.lstrip("+") for f in feature_flags.split(",")]
     supported_cpu_flags = _read_cpu_flags()
 
     missing_features = []
+    # Avoid constructing message strings in the hot path (performance negligible but stylistically best-practice).
     for f in expected_cpu_flags:
         if f not in supported_cpu_flags:
             msg = f"unknown feature flag: {f!r}"
