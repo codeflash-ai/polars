@@ -68,10 +68,11 @@ def _timedelta_to_duration_string(td: timedelta) -> str:
 
 def negate_duration_string(duration: str) -> str:
     """Negate a Polars duration string."""
-    if duration.startswith("-"):
+    # Fast path: check first character directly (avoid startswith overhead)
+    if duration and duration[0] == "-":
         return duration[1:]
     else:
-        return f"-{duration}"
+        return "-" + duration
 
 
 def date_to_int(d: date) -> int:
