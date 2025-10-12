@@ -105,14 +105,35 @@ def contains_nested(value: Any, is_nested: Callable[[Any], bool]) -> bool:
 def is_simple_numpy_backed_pandas_series(
     series: pd.Series[Any] | pd.Index[Any] | pd.DatetimeIndex,
 ) -> bool:
-    if len(series.shape) > 1:
+    shape = series.shape  # Local variable avoids repeated attribute lookup
+    if len(shape) > 1:
         # Pandas Series is actually a Pandas DataFrame when the original DataFrame
         # contains duplicated columns and a duplicated column is requested with df["a"].
         msg = f"duplicate column names found: {series.columns.tolist()!s}"  # type: ignore[union-attr]
         raise ValueError(msg)
-    return (str(series.dtype) in PANDAS_SIMPLE_NUMPY_DTYPES) or (
-        series.dtype == "object"
-        and not series.hasnans
-        and not series.empty
-        and isinstance(next(iter(series)), str)
-    )
+
+    dtype = series.dtype  # Avoid repeated attribute lookup
+    dtype_str = str(dtype)
+    # Fastest path for common case: numeric dtypes, short-circuit as soon as possible
+    if dtype_str in PANDAS_SIMPLE_NUMPY_DTYPES:
+        return True
+
+    # Short-circuit all cases that aren't dtype=object
+    if dtype != "object":
+        return False
+
+    # Below: all are dtype==object
+
+    # Use faster branch ordering: fastest checks first
+    # Avoid calling .hasnans if possible (can be expensive)
+    # .empty is fastest, check first to potentially avoid costly .hasnans
+    if series.empty:
+        return False
+
+    # Only call .hasnans after .empty check passes
+    if series.hasnans:
+        return False
+
+    # Efficiently test if first item is str, but avoid StopIteration for empty checked above
+    first_item = next(iter(series))
+    return isinstance(first_item, str)
