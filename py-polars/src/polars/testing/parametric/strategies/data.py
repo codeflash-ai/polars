@@ -358,7 +358,9 @@ def nulls() -> SearchStrategy[None]:
 
 def objects() -> SearchStrategy[object]:
     """Create a strategy for generating arbitrary objects."""
-    return st.builds(object)
+    if not hasattr(objects, "_cached_strat"):
+        objects._cached_strat = st.builds(object)
+    return objects._cached_strat
 
 
 # Strategies that are not customizable through parameters
