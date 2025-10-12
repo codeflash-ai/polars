@@ -48,11 +48,23 @@ def try_get_type_hints(obj: type) -> dict[str, Any]:
 @lru_cache(64)
 def is_namedtuple(cls: Any, *, annotated: bool = False) -> bool:
     """Check if given class derives from NamedTuple."""
-    if all(hasattr(cls, attr) for attr in ("_fields", "_field_defaults", "_replace")):
-        if not isinstance(cls._fields, property):
-            if not annotated or len(cls.__annotations__) == len(cls._fields):
-                return all(isinstance(fld, str) for fld in cls._fields)
-    return False
+    # Pull attributes just once
+    try:
+        fields = cls._fields
+        field_defaults = cls._field_defaults
+        replace = cls._replace
+    except AttributeError:
+        return False
+
+    if isinstance(fields, property):
+        return False
+    if annotated and len(cls.__annotations__) != len(fields):
+        return False
+    # Fast loop - _fields property usually tuple of strings
+    for fld in fields:
+        if not isinstance(fld, str):
+            return False
+    return True
 
 
 def is_pydantic_model(value: Any) -> bool:
@@ -79,13 +91,21 @@ def get_first_non_none(values: Sequence[Any | None]) -> Any:
 
 def nt_unpack(obj: Any) -> Any:
     """Recursively unpack a nested NamedTuple."""
-    if isinstance(obj, dict):
+    # Fast-path for most frequent case order: dict, list, namedtuple, tuple, fallback.
+    obj_type = type(obj)
+    if obj_type is dict:
+        # Static method for items is faster than isinstance(obj, dict)
+        # Plus, prevents picking up dict subclasses
         return {key: nt_unpack(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
+    elif obj_type is list:
         return [nt_unpack(value) for value in obj]
-    elif is_namedtuple(obj.__class__):
+    # Namedtuple structural recognition (bypass isinstance for speed)
+    # No isinstance here; is_namedtuple() handles check
+    elif is_namedtuple(obj_type):
+        # _asdict is always available on namedtuple subclasses: no need to check method existence
         return {key: nt_unpack(value) for key, value in obj._asdict().items()}
-    elif isinstance(obj, tuple):
+    elif obj_type is tuple:
+        # Only check real tuples (e.g. not namedtuple)
         return tuple(nt_unpack(value) for value in obj)
     else:
         return obj
