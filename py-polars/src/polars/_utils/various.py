@@ -213,6 +213,9 @@ def _in_notebook() -> bool:
 
 
 def _in_marimo_notebook() -> bool:
+    _marimo_mod = sys.modules.get("marimo")
+    if _marimo_mod is not None:
+        return _marimo_mod.running_in_notebook()
     try:
         import marimo as mo
 
