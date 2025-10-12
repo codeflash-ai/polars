@@ -47,6 +47,8 @@ if TYPE_CHECKING:
 
     from polars._typing import ExcelSpreadsheetEngine, FileSource, SchemaDict
 
+_duplicated_pattern = re.compile(r"_duplicated_(\d+)")
+
 
 def _sources(source: FileSource) -> tuple[Any, bool]:
     """Unpack any glob patterns, standardise file paths."""
@@ -80,7 +82,7 @@ def _sources(source: FileSource) -> tuple[Any, bool]:
 
 def _standardize_duplicates(s: str) -> str:
     """Standardize columns with '_duplicated_n' names."""
-    return re.sub(r"_duplicated_(\d+)", repl=r"\1", string=s)
+    return _duplicated_pattern.sub(r"\1", s)
 
 
 def _unpack_read_results(
