@@ -41,6 +41,26 @@ else:  # pragma: no cover
     NoneType = type(None)
     UnionType = UnionTypeOld
 
+_INT64 = Int64()
+
+_FLOAT64 = Float64()
+
+_STRING = String()
+
+_BOOLEAN = Boolean()
+
+_DATETIME_US = Datetime("us")
+
+_DATE = Date()
+
+_TIME = Time()
+
+_OBJECT = Object()
+
+_NULL = Null()
+
+_BINARY = Binary()
+
 
 def parse_into_datatype_expr(input: Any) -> pl.DataTypeExpr:
     """Parse an input into a DataTypeExpr."""
@@ -81,29 +101,29 @@ def try_parse_into_dtype(input: Any) -> PolarsDataType | None:
 def parse_py_type_into_dtype(input: PythonDataType | type[object]) -> PolarsDataType:
     """Convert Python data type to Polars data type."""
     if input is int:
-        return Int64()
+        return _INT64
     elif input is float:
-        return Float64()
+        return _FLOAT64
     elif input is str:
-        return String()
+        return _STRING
     elif input is bool:
-        return Boolean()
+        return _BOOLEAN
     elif isinstance(input, type) and issubclass(input, datetime):  # type: ignore[redundant-expr]
-        return Datetime("us")
+        return _DATETIME_US
     elif isinstance(input, type) and issubclass(input, date):  # type: ignore[redundant-expr]
-        return Date()
+        return _DATE
     elif input is timedelta:
         return Duration
     elif input is time:
-        return Time()
+        return _TIME
     elif input is PyDecimal:
         return Decimal
     elif input is bytes:
-        return Binary()
+        return _BINARY
     elif input is object:
-        return Object()
+        return _OBJECT
     elif input is NoneType:
-        return Null()
+        return _NULL
     elif input is list or input is tuple:
         return List
     elif isclass(input) and issubclass(input, enum.Enum):
@@ -111,7 +131,10 @@ def parse_py_type_into_dtype(input: PythonDataType | type[object]) -> PolarsData
     # this is required as pass through. Don't remove
     elif input == Unknown:
         return Unknown
-    elif hasattr(input, "__origin__") and hasattr(input, "__args__"):
+    elif (
+        getattr(input, "__origin__", None) is not None
+        and getattr(input, "__args__", None) is not None
+    ):
         return _parse_generic_into_dtype(input)
     else:
         _raise_on_invalid_dtype(input)
@@ -126,11 +149,10 @@ def _parse_generic_into_dtype(input: Any) -> PolarsDataType:
     inner_types = input.__args__
     inner_type = inner_types[0]
     if len(inner_types) > 1:
-        all_equal = all(t in (inner_type, ...) for t in inner_types)
-        if not all_equal:
-            _raise_on_invalid_dtype(input)
+        for t in inner_types:
+            if t is not inner_type and t is not ...:
+                _raise_on_invalid_dtype(input)
 
-    inner_type = inner_types[0]
     inner_dtype = parse_py_type_into_dtype(inner_type)
     return List(inner_dtype)
 
