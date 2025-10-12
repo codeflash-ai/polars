@@ -637,19 +637,25 @@ def parse_percentiles(
         percentiles = [percentiles]
     elif percentiles is None:
         percentiles = []
-    if not all((0 <= p <= 1) for p in percentiles):
-        msg = "`percentiles` must all be in the range [0, 1]"
-        raise ValueError(msg)
+    # Combine the membership check and range check into a single loop for performance
+    sub_50 = []
+    at_or_above_50 = []
+    for p in percentiles:
+        if not (0 <= p <= 1):
+            msg = "`percentiles` must all be in the range [0, 1]"
+            raise ValueError(msg)
+        if p < 0.5:
+            sub_50.append(p)
+        else:
+            at_or_above_50.append(p)
+    # Sort the partitions in-place for better performance
+    sub_50.sort()
+    at_or_above_50.sort()
 
-    sub_50_percentiles = sorted(p for p in percentiles if p < 0.5)
-    at_or_above_50_percentiles = sorted(p for p in percentiles if p >= 0.5)
+    if inject_median and (not at_or_above_50 or at_or_above_50[0] != 0.5):
+        at_or_above_50 = [0.5] + at_or_above_50
 
-    if inject_median and (
-        not at_or_above_50_percentiles or at_or_above_50_percentiles[0] != 0.5
-    ):
-        at_or_above_50_percentiles = [0.5, *at_or_above_50_percentiles]
-
-    return [*sub_50_percentiles, *at_or_above_50_percentiles]
+    return sub_50 + at_or_above_50
 
 
 def re_escape(s: str) -> str:
