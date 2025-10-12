@@ -807,16 +807,12 @@ def _get_sheet_names(
                 sheet_names.append(name)
         else:
             ids = (sheet_id,) if isinstance(sheet_id, int) else sheet_id or ()
-            sheet_names_by_idx = {
-                idx: ws["name"]
-                for idx, ws in enumerate(worksheets, start=1)
-                if (sheet_id == 0 or ws["index"] in ids or ws["name"] in names)
-            }
+            worksheet_count = len(worksheets)
             for idx in ids:
-                if (name := sheet_names_by_idx.get(idx)) is None:
+                if not (1 <= idx <= worksheet_count):
                     msg = f"no matching sheet found when `sheet_id` is {idx}"
                     raise ValueError(msg)
-                sheet_names.append(name)
+                sheet_names.append(worksheets[idx - 1]["name"])
 
     return sheet_names, return_multiple_sheets  # type: ignore[return-value]
 
