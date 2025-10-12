@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from contextlib import AbstractContextManager as ContextManager
 
+_GLOB_CHARS = {"*", "?", "["}
+
 
 def parse_columns_arg(
     columns: Sequence[str] | Sequence[int] | str | int | None,
@@ -305,7 +307,7 @@ def process_file_url(path: str, encoding: str | None = None) -> BytesIO:
 
 
 def is_glob_pattern(file: str) -> bool:
-    return any(char in file for char in ["*", "?", "["])
+    return not _GLOB_CHARS.isdisjoint(file)
 
 
 def is_local_file(file: str) -> bool:
