@@ -74,6 +74,11 @@ if TYPE_CHECKING:
     from polars._typing import PolarsDataType, SchemaDict, TimeUnit
     from polars.datatypes import DataType, DataTypeClass
 
+_strings_strategy = st.text(
+    alphabet=st.characters(max_codepoint=1000, exclude_categories=["Cs", "Cc"]),
+    max_size=8,
+)
+
 _DEFAULT_LIST_LEN_LIMIT = 3
 _DEFAULT_N_CATEGORIES = 10
 
@@ -121,8 +126,7 @@ def booleans() -> SearchStrategy[bool]:
 
 def strings() -> SearchStrategy[str]:
     """Create a strategy for generating string values."""
-    alphabet = st.characters(max_codepoint=1000, exclude_categories=["Cs", "Cc"])
-    return st.text(alphabet=alphabet, max_size=8)
+    return _strings_strategy
 
 
 def binary() -> SearchStrategy[bytes]:
