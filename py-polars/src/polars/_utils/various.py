@@ -26,6 +26,8 @@ from typing import (
     overload,
 )
 
+from typing_extensions import TypeGuard
+
 import polars as pl
 from polars import functions as F
 from polars._dependencies import _check_for_numpy, import_optional, subprocess
@@ -86,7 +88,10 @@ def _is_generator(val: object | Iterator[T]) -> TypeIs[Iterator[T]]:
 
 def _is_iterable_of(val: Iterable[object], eltype: type | tuple[type, ...]) -> bool:
     """Check whether the given iterable is of the given type(s)."""
-    return all(isinstance(x, eltype) for x in val)
+    for x in val:
+        if not isinstance(x, eltype):
+            return False
+    return True
 
 
 def is_path_or_str_sequence(
@@ -126,11 +131,13 @@ def is_int_sequence(
     val: object, *, include_series: bool = False
 ) -> TypeGuard[Sequence[int]]:
     """Check whether the given sequence is a sequence of integers."""
+    if isinstance(val, Sequence) and _is_iterable_of(val, int):
+        return True
     if _check_for_numpy(val) and isinstance(val, np.ndarray):
         return np.issubdtype(val.dtype, np.integer)
     elif include_series and isinstance(val, pl.Series):
         return val.dtype.is_integer()
-    return isinstance(val, Sequence) and _is_iterable_of(val, int)
+    return False
 
 
 def is_sequence(
