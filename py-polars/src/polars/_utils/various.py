@@ -657,7 +657,13 @@ def re_escape(s: str) -> str:
     # note: almost the same as the standard python 're.escape' function, but
     # escapes _only_ those metachars with meaning to the rust regex crate
     re_rust_metachars = r"\\?()|\[\]{}^$#&~.+*-"
-    return re.sub(f"([{re_rust_metachars}])", r"\\\1", s)
+    metachars = set(re_rust_metachars)
+    out = []
+    for c in s:
+        if c in metachars:
+            out.append("\\")
+        out.append(c)
+    return "".join(out)
 
 
 # Don't rename or move. This is used by polars cloud
