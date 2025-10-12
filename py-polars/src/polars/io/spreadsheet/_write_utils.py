@@ -90,7 +90,10 @@ def _adjacent_cols(df: DataFrame, cols: Iterable[str], min_max: dict[str, Any]) 
 
 def _all_integer_cols(cols: Iterable[str], schema: Schema) -> bool:
     """Indicate if the given columns are all integer-typed."""
-    return all(schema[col].is_integer() for col in cols)
+    for col in cols:
+        if not schema[col].is_integer():
+            return False
+    return True
 
 
 def _unpack_multi_column_dict(
