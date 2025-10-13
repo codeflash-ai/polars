@@ -30,6 +30,10 @@ if TYPE_CHECKING:
     from polars.datatypes import DataTypeClass
     from polars.interchange.protocol import Dtype
 
+_ts_regex = re.compile(r"ts([mun]):(.*)")
+
+_td_regex = re.compile(r"tD([mun])")
+
 NE = Endianness.NATIVE
 
 polars_dtype_to_dtype_map: dict[DataTypeClass, Dtype] = {
@@ -126,7 +130,7 @@ def dtype_to_polars_dtype(dtype: Dtype) -> PolarsDataType:
 
 
 def _temporal_dtype_to_polars_dtype(format_str: str, dtype: Dtype) -> PolarsDataType:
-    if (match := re.fullmatch(r"ts([mun]):(.*)", format_str)) is not None:
+    if (match := _ts_regex.fullmatch(format_str)) is not None:
         time_unit = match.group(1) + "s"
         time_zone = match.group(2) or None
         return Datetime(
@@ -137,7 +141,7 @@ def _temporal_dtype_to_polars_dtype(format_str: str, dtype: Dtype) -> PolarsData
         return Date
     elif format_str == "ttu":
         return Time
-    elif (match := re.fullmatch(r"tD([mun])", format_str)) is not None:
+    elif (match := _td_regex.fullmatch(format_str)) is not None:
         time_unit = match.group(1) + "s"
         return Duration(time_unit=time_unit)  # type: ignore[arg-type]
 
