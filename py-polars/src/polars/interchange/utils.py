@@ -148,11 +148,10 @@ def _temporal_dtype_to_polars_dtype(format_str: str, dtype: Dtype) -> PolarsData
 def get_buffer_length_in_elements(buffer_size: int, dtype: Dtype) -> int:
     """Get the length of a buffer in elements."""
     bits_per_element = dtype[1]
-    bytes_per_element, rest = divmod(bits_per_element, 8)
-    if rest > 0:
+    if bits_per_element % 8:
         msg = f"cannot get buffer length for buffer with dtype {dtype!r}"
         raise ValueError(msg)
-    return buffer_size // bytes_per_element
+    return buffer_size // (bits_per_element // 8)
 
 
 def polars_dtype_to_data_buffer_dtype(dtype: PolarsDataType) -> PolarsDataType:
