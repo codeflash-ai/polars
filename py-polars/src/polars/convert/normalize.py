@@ -132,6 +132,9 @@ def _normalize_json_ordered(
         else:
             top_[k] = v
 
+    if not nested_data:
+        return top_
+
     nested_ = _normalize_json(
         data=nested_data,
         key_string="",
@@ -140,7 +143,7 @@ def _normalize_json_ordered(
         max_level=max_level,
         encoder=encoder,
     )
-    return {**top_, **nested_}
+    return top_ | nested_
 
 
 @unstable()
