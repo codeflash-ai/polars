@@ -38,23 +38,20 @@ def expr_dispatch(cls: type[T]) -> type[T]:
     namespace = getattr(cls, "_accessor", None)
     expr_lookup = _expr_lookup(namespace)
 
-    for name in dir(cls):
-        if (
-            # private
-            not name.startswith("_")
-            # Avoid error when building docs
-            # https://github.com/pola-rs/polars/pull/13238#discussion_r1438787093
-            # TODO: is there a better way to do this?
-            and name != "plot"
-        ):
-            attr = getattr(cls, name)
+    # Use vars(cls) and dir(cls) together for safe, faster attribute lookups
+    cls_dir = dir(cls)
+    cls_vars = vars(cls)
+
+    for name in cls_dir:
+        if not name.startswith("_") and name != "plot":
+            # Prefer attribute lookup from __dict__ first (faster, skips descriptor logic)
+            attr = cls_vars.get(name, None)
+            if attr is None:
+                attr = getattr(cls, name, None)
             if callable(attr):
                 attr = _undecorated(attr)
-                # note: `co_varnames` starts with the function args, but needs to be
-                # constrained by `co_argcount` as it also includes function-level consts
-                args = attr.__code__.co_varnames[: attr.__code__.co_argcount]
-                # if an expression method with compatible method exists, further check
-                # that the series implementation has an empty function body
+                co = attr.__code__
+                args = co.co_varnames[: co.co_argcount]
                 if (namespace, name, args) in expr_lookup and _is_empty_method(attr):
                     setattr(cls, name, call_expr(attr))
     return cls
@@ -71,17 +68,22 @@ def _expr_lookup(namespace: str | None) -> set[tuple[str | None, str, tuple[str,
         expr = getattr(expr, namespace)
 
     lookup = set()
-    for name in dir(expr):
+    expr_dir = dir(expr)
+    expr_dict = expr.__class__.__dict__  # For faster attribute checks when possible
+
+    for name in expr_dir:
         if not name.startswith("_"):
-            try:
-                m = getattr(expr, name)
-            except AttributeError:  # may raise for @property methods
-                continue
+            # Try fast path via __dict__ (avoids triggering property logic)
+            m = expr_dict.get(name, None)
+            if m is None:
+                try:
+                    m = getattr(expr, name)
+                except AttributeError:  # may raise for @property methods
+                    continue
             if callable(m):
-                # add function signature (argument names only) to the lookup
-                # as a _possible_ candidate for expression-dispatch
                 m = _undecorated(m)
-                args = m.__code__.co_varnames[: m.__code__.co_argcount]
+                co = m.__code__
+                args = co.co_varnames[: co.co_argcount]
                 lookup.add((namespace, name, args))
     return lookup
 
@@ -100,7 +102,8 @@ def call_expr(func: SeriesMethod) -> SeriesMethod:
     def wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> Series:
         s = wrap_s(self._s)
         expr = F.col(s.name)
-        if (namespace := getattr(self, "_accessor", None)) is not None:
+        namespace = getattr(self, "_accessor", None)
+        if namespace is not None:
             expr = getattr(expr, namespace)
         f = getattr(expr, func.__name__)
         return s.to_frame().select_seq(f(*args, **kwargs)).to_series()
@@ -121,10 +124,12 @@ def _is_empty_method(func: SeriesMethod) -> bool:
     - has no docstring and just contains 'pass' (or equivalent)
     """
     fc = func.__code__
-    return (fc.co_code in _EMPTY_BYTECODE) and (
-        (len(fc.co_consts) == 2 and fc.co_consts[1] is None)
-        # account for optimized-out docstrings (eg: running 'python -OO')
-        or (sys.flags.optimize == 2 and fc.co_consts == (None,))
+    consts = fc.co_consts
+    code = fc.co_code
+    # _EMPTY_BYTECODE is imported as a singleton set-like object from polars.series.utils
+    return (code in _EMPTY_BYTECODE) and (
+        (len(consts) == 2 and consts[1] is None)
+        or (sys.flags.optimize == 2 and consts == (None,))
     )
 
 
