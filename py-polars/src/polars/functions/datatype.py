@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import polars._reexport as pl
 from polars import functions as F
+from polars._plr import PyDataTypeExpr
 from polars._utils.unstable import unstable
 from polars._utils.various import qualified_type_name
 
@@ -65,14 +66,7 @@ def dtype_of(col_or_expr: str | Expr) -> pl.DataTypeExpr:
     │ Ethan   │
     └─────────┘
     """
-    from polars._plr import PyDataTypeExpr
-
-    e: Expr
-    if isinstance(col_or_expr, str):
-        e = F.col(col_or_expr)
-    else:
-        e = col_or_expr
-
+    e: Expr = F.col(col_or_expr) if isinstance(col_or_expr, str) else col_or_expr
     return pl.DataTypeExpr._from_pydatatype_expr(PyDataTypeExpr.of_expr(e._pyexpr))
 
 
