@@ -111,6 +111,30 @@ def _patch_policy():
 def _patch_loop(loop):
     """Patch loop to make it reentrant."""
 
+    # Cache various things up-front for tight loops.
+    if hasattr(loop, "_nest_patched"):
+        return
+    if not isinstance(loop, asyncio.BaseEventLoop):
+        raise ValueError("Can't patch loop of type %s" % type(loop))
+    cls = loop.__class__
+    is_nt = os.name == "nt"
+    issub_proactorloop = is_nt and issubclass(cls, asyncio.ProactorEventLoop)
+    version_info = sys.version_info
+    version_lt_37 = version_info < (3, 7, 0)
+
+    curr_tasks = (
+        asyncio.tasks._current_tasks
+        if version_info >= (3, 7, 0)
+        else asyncio.Task._current_tasks
+    )
+
+    # Store these for all subsequent method calls
+    cls._num_runs_pending = 1 if loop.is_running() else 0
+    cls._is_proactorloop = issub_proactorloop
+    cls._nest_patched = True
+    if version_lt_37:
+        cls._set_coroutine_origin_tracking = cls._set_coroutine_wrapper
+
     def run_forever(self):
         with manage_run(self), manage_asyncgens(self):
             while True:
@@ -120,8 +144,10 @@ def _patch_loop(loop):
         self._stopping = False
 
     def run_until_complete(self, future):
+        # Reference 'ensure_future' and other callables only once
+        ensure_future = asyncio.ensure_future
         with manage_run(self):
-            f = asyncio.ensure_future(future, loop=self)
+            f = ensure_future(future, loop=self)
             if f is not future:
                 f._log_destroy_pending = False
             while not f.done():
@@ -139,39 +165,55 @@ def _patch_loop(loop):
         """
         ready = self._ready
         scheduled = self._scheduled
+        _heappop = heappop
+        _len_ready = len(ready)
+        time = self.time
+        _stopping = self._stopping
+        # Only check for cancelled at head as in the original (may be tight loop if cancelled)
         while scheduled and scheduled[0]._cancelled:
-            heappop(scheduled)
+            _heappop(scheduled)
 
+        # Cache self.selector.select and self._process_events for tight loop
+        _selector_select = self._selector.select
+        _process_events = self._process_events
+
+        # Only reference self.time() once as it's potentially expensive (monotonic/clock)
+        now = time()
         timeout = (
             0
-            if ready or self._stopping
-            else min(max(scheduled[0]._when - self.time(), 0), 86400)
+            if ready or _stopping
+            else min(max(scheduled[0]._when - now, 0), 86400)
             if scheduled
             else None
         )
-        event_list = self._selector.select(timeout)
-        self._process_events(event_list)
 
-        end_time = self.time() + self._clock_resolution
+        event_list = _selector_select(timeout)
+        _process_events(event_list)
+
+        # Only compute end_time once
+        end_time = time() + self._clock_resolution
+
+        # Move all scheduled whose _when < end_time into ready
         while scheduled and scheduled[0]._when < end_time:
-            handle = heappop(scheduled)
-            ready.append(handle)
+            ready.append(_heappop(scheduled))
 
+        # Move to local for performance, avoid repeated lookups
+        ready_popleft = ready.popleft
+        _curr_tasks = curr_tasks
         for _ in range(len(ready)):
             if not ready:
                 break
-            handle = ready.popleft()
+            handle = ready_popleft()
             if not handle._cancelled:
                 # preempt the current task so that that checks in
                 # Task.__step do not raise
-                curr_task = curr_tasks.pop(self, None)
-
+                curr_task = _curr_tasks.pop(self, None)
                 try:
                     handle._run()
                 finally:
                     # restore the current task
                     if curr_task is not None:
-                        curr_tasks[self] = curr_task
+                        _curr_tasks[self] = curr_task
 
         handle = None
 
@@ -227,28 +269,11 @@ def _patch_loop(loop):
         """Do not throw exception if loop is already running."""
         pass
 
-    if hasattr(loop, "_nest_patched"):
-        return
-    if not isinstance(loop, asyncio.BaseEventLoop):
-        raise ValueError("Can't patch loop of type %s" % type(loop))
-    cls = loop.__class__
     cls.run_forever = run_forever
     cls.run_until_complete = run_until_complete
     cls._run_once = _run_once
     cls._check_running = _check_running
     cls._check_runnung = _check_running  # typo in Python 3.7 source
-    cls._num_runs_pending = 1 if loop.is_running() else 0
-    cls._is_proactorloop = os.name == "nt" and issubclass(
-        cls, asyncio.ProactorEventLoop
-    )
-    if sys.version_info < (3, 7, 0):
-        cls._set_coroutine_origin_tracking = cls._set_coroutine_wrapper
-    curr_tasks = (
-        asyncio.tasks._current_tasks
-        if sys.version_info >= (3, 7, 0)
-        else asyncio.Task._current_tasks
-    )
-    cls._nest_patched = True
 
 
 def _patch_tornado():
