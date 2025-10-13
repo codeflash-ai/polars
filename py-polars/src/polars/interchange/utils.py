@@ -30,6 +30,10 @@ if TYPE_CHECKING:
     from polars.datatypes import DataTypeClass
     from polars.interchange.protocol import Dtype
 
+_TS_PATTERN = re.compile(r"ts([mun]):(.*)")
+
+_TD_PATTERN = re.compile(r"tD([mun])")
+
 NE = Endianness.NATIVE
 
 polars_dtype_to_dtype_map: dict[DataTypeClass, Dtype] = {
@@ -113,22 +117,30 @@ def dtype_to_polars_dtype(dtype: Dtype) -> PolarsDataType:
     """Convert interchange protocol data type to Polars data type."""
     kind, bit_width, format_str, _ = dtype
 
-    if kind == DtypeKind.DATETIME:
+    # Use direct comparison for frequently checked enums.
+    if kind is DtypeKind.DATETIME:
         return _temporal_dtype_to_polars_dtype(format_str, dtype)
-    elif kind == DtypeKind.CATEGORICAL:
+    elif kind is DtypeKind.CATEGORICAL:
         return Enum
 
-    try:
-        return dtype_to_polars_dtype_map[kind][bit_width]
-    except KeyError as exc:
-        msg = f"unsupported data type: {dtype!r}"
-        raise NotImplementedError(msg) from exc
+    # Avoid try/except overhead by pre-checking presence (these dicts are fast).
+    kind_map = dtype_to_polars_dtype_map.get(kind)
+    if kind_map is not None:
+        dtype_class = kind_map.get(bit_width)
+        if dtype_class is not None:
+            return dtype_class
+
+    msg = f"unsupported data type: {dtype!r}"
+    raise NotImplementedError(msg)
 
 
 def _temporal_dtype_to_polars_dtype(format_str: str, dtype: Dtype) -> PolarsDataType:
-    if (match := re.fullmatch(r"ts([mun]):(.*)", format_str)) is not None:
-        time_unit = match.group(1) + "s"
-        time_zone = match.group(2) or None
+    # Use precompiled patterns
+    match = _TS_PATTERN.fullmatch(format_str)
+    if match is not None:
+        # Avoid .group('name'), use integer indices which are faster.
+        time_unit = match[1] + "s"
+        time_zone = match[2] or None
         return Datetime(
             time_unit=time_unit,  # type: ignore[arg-type]
             time_zone=time_zone,
@@ -137,8 +149,9 @@ def _temporal_dtype_to_polars_dtype(format_str: str, dtype: Dtype) -> PolarsData
         return Date
     elif format_str == "ttu":
         return Time
-    elif (match := re.fullmatch(r"tD([mun])", format_str)) is not None:
-        time_unit = match.group(1) + "s"
+    match = _TD_PATTERN.fullmatch(format_str)
+    if match is not None:
+        time_unit = match[1] + "s"
         return Duration(time_unit=time_unit)  # type: ignore[arg-type]
 
     msg = f"unsupported temporal data type: {dtype!r}"
