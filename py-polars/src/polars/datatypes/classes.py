@@ -1216,4 +1216,9 @@ class Struct(NestedType):
 
     def to_schema(self) -> OrderedDict[str, PolarsDataType]:
         """Return Struct dtype as a schema dict."""
-        return OrderedDict(self)
+        # Directly construct OrderedDict from self.fields for performance.
+        # This avoids the overhead of iterating with __iter__ from key/value conversion.
+        odict = OrderedDict()
+        for fld in self.fields:
+            odict[fld.name] = fld.dtype
+        return odict
