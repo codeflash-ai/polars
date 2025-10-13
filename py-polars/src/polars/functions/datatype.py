@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 import polars._reexport as pl
 from polars import functions as F
+from polars._plr import PyDataTypeExpr
 from polars._utils.unstable import unstable
 from polars._utils.various import qualified_type_name
 
@@ -101,12 +102,9 @@ def struct_with_fields(
         This functionality is considered **unstable**. It may be changed
         at any point without it being considered a breaking change.
     """
-    from polars._plr import PyDataTypeExpr
 
     def preprocess(dtype_expr: PolarsDataType | pl.DataTypeExpr) -> PyDataTypeExpr:
-        if isinstance(dtype_expr, pl.DataType):
-            return dtype_expr.to_dtype_expr()._pydatatype_expr
-        if isinstance(dtype_expr, pl.DataTypeClass):
+        if isinstance(dtype_expr, (pl.DataType, pl.DataTypeClass)):
             return dtype_expr.to_dtype_expr()._pydatatype_expr
         elif isinstance(dtype_expr, pl.DataTypeExpr):
             return dtype_expr._pydatatype_expr
@@ -114,7 +112,7 @@ def struct_with_fields(
             msg = f"mapping item must be a datatype or datatype expression; found {qualified_type_name(dtype_expr)!r}"
             raise TypeError(msg)
 
-    fields = [(name, preprocess(dtype_expr)) for (name, dtype_expr) in mapping.items()]
+    fields = [(name, preprocess(dtype_expr)) for name, dtype_expr in mapping.items()]
 
     return pl.DataTypeExpr._from_pydatatype_expr(
         PyDataTypeExpr.struct_with_fields(fields)
