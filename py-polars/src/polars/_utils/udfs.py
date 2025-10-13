@@ -12,7 +12,7 @@ from bisect import bisect_left
 from collections import defaultdict
 from dis import get_instructions
 from inspect import signature
-from itertools import count, zip_longest
+from itertools import zip_longest
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -339,14 +339,24 @@ def _get_target_name(col: str, expression: str, map_target: str) -> str:
         # note: handle overlapping name from global variables; fallback
         # through "s", "srs", "series" and (finally) srs0 -> srsN...
         search_expr = expression.replace(col_expr, "")
+
+        # Precompile all patterns for efficiency
+        patterns = {name: re.compile(rf"\b{name}\b") for name in ("s", "srs", "series")}
         for name in ("s", "srs", "series"):
-            if not re.search(rf"\b{name}\b", search_expr):
+            if not patterns[name].search(search_expr):
                 return name
-        n = count()
+
+        # Precompile dynamic regex for the srsN pattern and extract used N
+        # This avoids re.search in the loop and instead searches once for all uses
+        used_indices = set()
+        for match in re.finditer(r"\bsrs(\d+)\b", search_expr):
+            used_indices.add(int(match.group(1)))
+        # Find first unused index
+        n = 0
         while True:
-            name = f"srs{next(n)}"
-            if not re.search(rf"\b{name}\b", search_expr):
-                return name
+            if n not in used_indices:
+                return f"srs{n}"
+            n += 1
 
     msg = f"TODO: map_target = {map_target!r}"
     raise NotImplementedError(msg)
