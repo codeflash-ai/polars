@@ -6,40 +6,21 @@ import re
 import sys
 import warnings
 from collections import Counter
-from collections.abc import (
-    Collection,
-    Generator,
-    Iterable,
-    MappingView,
-    Sequence,
-    Sized,
-)
+from collections.abc import (Collection, Generator, Iterable, MappingView,
+                             Sequence, Sized)
 from enum import Enum
+from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Literal,
-    TypeVar,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar, overload
 
 import polars as pl
 from polars import functions as F
-from polars._dependencies import _check_for_numpy, import_optional, subprocess
+from polars._dependencies import _check_for_numpy, import_optional
 from polars._dependencies import numpy as np
-from polars.datatypes import (
-    Boolean,
-    Date,
-    Datetime,
-    Decimal,
-    Duration,
-    Int64,
-    String,
-    Time,
-)
+from polars._dependencies import subprocess
+from polars.datatypes import (Boolean, Date, Datetime, Decimal, Duration,
+                              Int64, String, Time)
 from polars.datatypes.group import FLOAT_DTYPES, INTEGER_DTYPES
 
 if TYPE_CHECKING:
@@ -499,9 +480,9 @@ def issue_warning(message: str, category: type[Warning], **kwargs: Any) -> None:
         Additional arguments for `warnings.warn`. Note that the `stacklevel` is
         determined automatically.
     """
-    warnings.warn(
-        message=message, category=category, stacklevel=find_stacklevel(), **kwargs
-    )
+    stack_key = _caller_stack_key()
+    stacklevel = _find_stacklevel_for_key(stack_key)
+    warnings.warn(message=message, category=category, stacklevel=stacklevel, **kwargs)
 
 
 def _get_stack_locals(
@@ -780,3 +761,27 @@ def require_same_type(current: Any, other: Any) -> None:
             f"not {qualified_type_name(other)!r}"
         )
         raise TypeError(msg)
+
+
+def _caller_stack_key() -> tuple[str, str, int]:
+    # Identify the caller as (filename, function name, lineno)
+    frame = inspect.currentframe()
+    try:
+        # get outer frame (issue_warning), then its caller
+        outer = frame.f_back
+        caller = outer.f_back if outer else None
+        if caller:
+            co = caller.f_code
+            return (co.co_filename, co.co_name, caller.f_lineno)
+        else:
+            return ("", "", 0)
+    finally:
+        del frame
+
+
+@lru_cache(maxsize=128)
+def _find_stacklevel_for_key(key: tuple[str, str, int]) -> int:
+    # Directly call external find_stacklevel from stack context of the caller
+    import polars._utils.various as _vmod
+
+    return _vmod.find_stacklevel()
