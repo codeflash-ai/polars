@@ -57,6 +57,15 @@ def apply(loop=None):
 def _patch_asyncio():
     """Patch asyncio module to use pure Python tasks and futures."""
 
+    # Use module level _current_tasks, all_tasks and patch run method.
+    # Early escape if already patched
+    if hasattr(asyncio, "_nest_patched"):
+        return
+
+    # Locally cache sys.version_info for minor speedup in comparisons
+    vi = sys.version_info
+
+    # Patch `run` method (hot path only if .run is invoked)
     def run(main, *, debug=False):
         loop = asyncio.get_event_loop()
         loop.set_debug(debug)
@@ -69,27 +78,38 @@ def _patch_asyncio():
                 with suppress(asyncio.CancelledError):
                     loop.run_until_complete(task)
 
+    # Patch _get_event_loop for 3.9+
     def _get_event_loop(stacklevel=3):
         loop = events._get_running_loop()
         if loop is None:
-            loop = events.get_event_loop_policy().get_event_loop()
+            policy = events.get_event_loop_policy()
+            loop = policy.get_event_loop()
         return loop
 
-    # Use module level _current_tasks, all_tasks and patch run method.
-    if hasattr(asyncio, "_nest_patched"):
-        return
-    if sys.version_info >= (3, 6, 0):
-        asyncio.Task = asyncio.tasks._CTask = asyncio.tasks.Task = asyncio.tasks._PyTask
-        asyncio.Future = asyncio.futures._CFuture = asyncio.futures.Future = (
-            asyncio.futures._PyFuture
-        )
-    if sys.version_info < (3, 7, 0):
-        asyncio.tasks._current_tasks = asyncio.tasks.Task._current_tasks
+    # Python 3.6+
+    if vi >= (3, 6, 0):
+        py_task = asyncio.tasks._PyTask
+        py_future = asyncio.futures._PyFuture
+        # Direct assignment on the module level objects for efficiency
+        asyncio.Task = py_task
+        asyncio.tasks._CTask = py_task
+        asyncio.tasks.Task = py_task
+        asyncio.Future = py_future
+        asyncio.futures._CFuture = py_future
+        asyncio.futures.Future = py_future
+
+    # Python <3.7: patch task/future tracking
+    if vi < (3, 7, 0):
+        ctasks = asyncio.tasks.Task._current_tasks
+        asyncio.tasks._current_tasks = ctasks
         asyncio.all_tasks = asyncio.tasks.Task.all_tasks
-    if sys.version_info >= (3, 9, 0):
-        events._get_event_loop = events.get_event_loop = asyncio.get_event_loop = (
-            _get_event_loop
-        )
+
+    # Python 3.9+: override event loop getter
+    if vi >= (3, 9, 0):
+        events._get_event_loop = _get_event_loop
+        events.get_event_loop = _get_event_loop
+        asyncio.get_event_loop = _get_event_loop
+
     asyncio.run = run
     asyncio._nest_patched = True
 
