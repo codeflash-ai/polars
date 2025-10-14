@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import MutableMapping
-from typing import TYPE_CHECKING, Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from polars._utils.various import no_default
 
@@ -111,19 +111,32 @@ class LRUCache(MutableMapping[K, V]):
         """Clear the cache, removing all items."""
         self._items.clear()
 
-    @overload
-    def get(self, key: K, default: None = None) -> V | None: ...
+    def get(self, key: K, default: None = None) -> V | None:
+        """Return value associated with `key` if present, otherwise return `default`."""
+        try:
+            value = self._items[key]
+            self._items.move_to_end(key)
+            return value
+        except KeyError:
+            return default
 
-    @overload
-    def get(self, key: K, default: D = ...) -> V | D: ...
+    def get(self, key: K, default: D = ...) -> V | D:
+        """Return value associated with `key` if present, otherwise return `default`."""
+        try:
+            value = self._items[key]
+            self._items.move_to_end(key)
+            return value
+        except KeyError:
+            return default
 
     def get(self, key: K, default: D | V | None = None) -> V | D | None:
         """Return value associated with `key` if present, otherwise return `default`."""
-        if key in self:
-            # moving accessed items to the end marks them as recently used
+        try:
+            value = self._items[key]
             self._items.move_to_end(key)
-            return self._items[key]
-        return default
+            return value
+        except KeyError:
+            return default
 
     @classmethod
     def fromkeys(cls, maxsize: int, *, keys: Iterable[K], value: V) -> Self:
