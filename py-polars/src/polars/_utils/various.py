@@ -42,6 +42,10 @@ from polars.datatypes import (
 )
 from polars.datatypes.group import FLOAT_DTYPES, INTEGER_DTYPES
 
+_re_rust_metachars = r"\\?()|\[\]{}^$#&~.+*-"
+
+_re_rust_metachars_pattern = re.compile(f"([{_re_rust_metachars}])")
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping, Reversible
 
@@ -656,8 +660,7 @@ def re_escape(s: str) -> str:
     """Escape a string for use in a Polars (Rust) regex."""
     # note: almost the same as the standard python 're.escape' function, but
     # escapes _only_ those metachars with meaning to the rust regex crate
-    re_rust_metachars = r"\\?()|\[\]{}^$#&~.+*-"
-    return re.sub(f"([{re_rust_metachars}])", r"\\\1", s)
+    return _re_rust_metachars_pattern.sub(r"\\\1", s)
 
 
 # Don't rename or move. This is used by polars cloud

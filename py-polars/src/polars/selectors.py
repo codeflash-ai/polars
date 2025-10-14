@@ -639,7 +639,10 @@ def _re_string(string: str | Collection[str], *, escape: bool = True) -> str:
                 strings.extend(st)
             else:
                 strings.append(st)
-        rx = "|".join((re_escape(x) if escape else x) for x in strings)
+        if escape:
+            rx = "|".join(map(re_escape, strings))
+        else:
+            rx = "|".join(strings)
     return f"({rx})"
 
 
