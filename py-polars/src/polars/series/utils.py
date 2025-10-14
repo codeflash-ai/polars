@@ -88,9 +88,15 @@ def _expr_lookup(namespace: str | None) -> set[tuple[str | None, str, tuple[str,
 
 def _undecorated(function: Callable[P, T]) -> Callable[P, T]:
     """Return the given function without any decorators."""
-    while hasattr(function, "__wrapped__"):
-        function = function.__wrapped__
-    return function
+    # Localize attribute lookup for performance
+    attr = "__wrapped__"
+    f = function
+    attr_getter = object.__getattribute__
+    try:
+        while True:
+            f = attr_getter(f, attr)
+    except AttributeError:
+        return f
 
 
 def call_expr(func: SeriesMethod) -> SeriesMethod:
