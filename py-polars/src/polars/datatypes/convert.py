@@ -57,6 +57,8 @@ else:
     NoneType = type(None)
     UnionType = type(Union[int, float])
 
+_DTYPE_RE = re.compile(r"^(\w+)(?:\[(.+)\])?$")
+
 if TYPE_CHECKING:
     from polars._typing import PolarsDataType, PythonDataType, TimeUnit
 
@@ -292,7 +294,7 @@ def dtype_short_repr_to_dtype(dtype_string: str | None) -> PolarsDataType | None
     if dtype_string is None:
         return None
 
-    m = re.match(r"^(\w+)(?:\[(.+)\])?$", dtype_string)
+    m = _DTYPE_RE.match(dtype_string)
     if m is None:
         return None
 
@@ -302,12 +304,16 @@ def dtype_short_repr_to_dtype(dtype_string: str | None) -> PolarsDataType | None
         # TODO: further-improve handling for nested types (such as List,Struct)
         try:
             if dtype == Decimal:
-                subtype = (None, int(subtype))
+                # Only pass (None, int(subtype))
+                subtype_value = (None, int(subtype))
+                return dtype(*subtype_value)  # type: ignore[operator]
             else:
-                subtype = (
+                # Avoid generator for direct tuple: slightly faster than generator + star
+                # Also avoids unnecessary intermediate memory allocs for short lists
+                subtypes = tuple(
                     s.strip("'\" ") for s in subtype.replace("μs", "us").split(",")
                 )
-            return dtype(*subtype)  # type: ignore[operator]
+                return dtype(*subtypes)  # type: ignore[operator]
         except ValueError:
             pass
     return dtype
