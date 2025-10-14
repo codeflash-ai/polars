@@ -31,6 +31,7 @@ from polars._dependencies import (
 )
 from polars._dependencies import polars_cloud as pc
 from polars._dependencies import pyarrow as pa
+from polars._plr import get_engine_affinity
 from polars._typing import (
     ParquetMetadata,
     PartitioningScheme,
@@ -180,7 +181,7 @@ _COLLECT_BATCHES_POOL = ThreadPoolExecutor(thread_name_prefix="pl_col_batch_")
 
 
 def _select_engine(engine: EngineType) -> EngineType:
-    return get_engine_affinity() if engine == "auto" else engine
+    return _get_engine_affinity() if engine == "auto" else engine
 
 
 def _to_sink_target(
@@ -241,6 +242,11 @@ def _gpu_engine_callback(
     if not is_config_obj:
         engine = GPUEngine()
     return partial(cudf_polars.execute_with_cudf, config=engine)
+
+
+@lru_cache(maxsize=1)
+def _get_engine_affinity() -> EngineType:
+    return get_engine_affinity()
 
 
 class LazyFrame:
