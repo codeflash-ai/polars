@@ -39,6 +39,8 @@ class KeyedPartition:
         self.name = name
         self.str_value = str_value
         self.raw_value = raw_value
+        # Precompute the hive name for faster repeated access
+        self._hive_name: str = f"{name}={str_value}"
 
     name: str  #: Name of the key column.
     str_value: str  #: Value of the key as a path and URL safe string.
@@ -46,7 +48,7 @@ class KeyedPartition:
 
     def hive_name(self) -> str:
         """Get the `key=value`."""
-        return f"{self.name}={self.str_value}"
+        return self._hive_name
 
 
 class KeyedPartitionContext:
