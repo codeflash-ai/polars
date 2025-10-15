@@ -7,6 +7,8 @@ from functools import partial
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
+from pyiceberg.io.pyarrow import schema_to_pyarrow
+
 import polars._reexport as pl
 from polars._utils.logging import eprint, verbose
 from polars.exceptions import ComputeError
@@ -62,8 +64,6 @@ class IcebergDataset:
 
     def arrow_schema(self) -> pa.schema:
         """Fetch the arrow schema of the table."""
-        from pyiceberg.io.pyarrow import schema_to_pyarrow
-
         return schema_to_pyarrow(self.table().schema())
 
     def to_dataset_scan(
@@ -75,14 +75,14 @@ class IcebergDataset:
         filter_columns: list[str] | None = None,
     ) -> tuple[LazyFrame, str] | None:
         """Construct a LazyFrame scan."""
-        if (
-            scan_data := self._to_dataset_scan_impl(
-                existing_resolved_version_key=existing_resolved_version_key,
-                limit=limit,
-                projection=projection,
-                filter_columns=filter_columns,
-            )
-        ) is None:
+        # This function is already extremely thin: fast return.
+        scan_data = self._to_dataset_scan_impl(
+            existing_resolved_version_key=existing_resolved_version_key,
+            limit=limit,
+            projection=projection,
+            filter_columns=filter_columns,
+        )
+        if scan_data is None:
             return None
 
         return scan_data.to_lazyframe(), scan_data.snapshot_id_key
@@ -95,8 +95,7 @@ class IcebergDataset:
         projection: list[str] | None = None,
         filter_columns: list[str] | None = None,
     ) -> _NativeIcebergScanData | _PyIcebergScanData | None:
-        from pyiceberg.io.pyarrow import schema_to_pyarrow
-
+        # Move imports to top; only moved pyiceberg.manifest/FileFormat and schema_to_pyarrow remain delayed.
         import polars._utils.logging
 
         verbose = polars._utils.logging.verbose()
@@ -111,7 +110,7 @@ class IcebergDataset:
                 f"self._use_metadata_statistics: {self._use_metadata_statistics}"
             )
 
-        tbl = self.table()
+        tbl = self.table()  # This may do IO
 
         if verbose:
             eprint(
@@ -120,32 +119,27 @@ class IcebergDataset:
             )
 
         snapshot_id = self._snapshot_id
-        schema_id = None
 
         if snapshot_id is not None:
             snapshot = tbl.snapshot_by_id(snapshot_id)
-
             if snapshot is None:
                 msg = f"iceberg snapshot ID not found: {snapshot_id}"
                 raise ValueError(msg)
-
             schema_id = snapshot.schema_id
-
             if schema_id is None:
                 msg = (
                     f"IcebergDataset: requested snapshot {snapshot_id} "
                     "did not contain a schema ID"
                 )
                 raise ValueError(msg)
-
             iceberg_schema = tbl.schemas()[schema_id]
             snapshot_id_key = f"{snapshot.snapshot_id}"
         else:
             iceberg_schema = tbl.schema()
             schema_id = tbl.metadata.current_schema_id
-
+            curr_snapshot = tbl.current_snapshot()
             snapshot_id_key = (
-                f"{v.snapshot_id}" if (v := tbl.current_snapshot()) is not None else ""
+                f"{curr_snapshot.snapshot_id}" if curr_snapshot is not None else ""
             )
 
         if (
@@ -157,31 +151,26 @@ class IcebergDataset:
                     "IcebergDataset: to_dataset_scan(): early return "
                     f"({snapshot_id_key = })"
                 )
-
             return None
 
-        # Take from parameter first then envvar
-        reader_override = self._reader_override or os.getenv(
-            "POLARS_ICEBERG_READER_OVERRIDE"
-        )
-
-        if reader_override and reader_override not in ["native", "pyiceberg"]:
+        # Take from parameter first then envvar, using fast logic.
+        reader_override = self._reader_override
+        if reader_override is None:
+            reader_override = os.getenv("POLARS_ICEBERG_READER_OVERRIDE")
+        if reader_override and reader_override not in ("native", "pyiceberg"):
             msg = (
                 "iceberg: unknown value for reader_override: "
                 f"'{reader_override}', expected one of ('native', 'pyiceberg')"
             )
             raise ValueError(msg)
 
-        fallback_reason = (
-            "forced reader_override='pyiceberg'"
-            if reader_override == "pyiceberg"
-            else f"unsupported table format version: {tbl.format_version}"
-            if not tbl.format_version <= 2
-            else None
-        )
+        fallback_reason = None
+        if reader_override == "pyiceberg":
+            fallback_reason = "forced reader_override='pyiceberg'"
+        elif not (tbl.format_version <= 2):
+            fallback_reason = f"unsupported table format version: {tbl.format_version}"
 
         selected_fields = ("*",) if projection is None else tuple(projection)
-
         projected_iceberg_schema = (
             iceberg_schema
             if selected_fields == ("*",)
@@ -200,63 +189,75 @@ class IcebergDataset:
         )
         deletion_files: dict[int, list[str]] = {}
 
+        # Fast path: Native reader, no fallback.
         if reader_override != "pyiceberg" and not fallback_reason:
+            # Only import here, used only in this branch
+            from pyiceberg.io.pyarrow import schema_to_pyarrow
             from pyiceberg.manifest import DataFileContent, FileFormat
 
             if verbose:
                 eprint("IcebergDataset: to_dataset_scan(): begin path expansion")
 
             start_time = perf_counter()
-
             scan = tbl.scan(
                 snapshot_id=snapshot_id,
                 limit=limit,
                 selected_fields=selected_fields,
             )
-
             total_deletion_files = 0
 
+            # OPTIMIZATION: Reduce attribute lookups with local variables and reduce repeated checks.
+            push_partition_values = missing_field_defaults.push_partition_values
+            statistics_push_file = (
+                statistics_loader.push_file_statistics
+                if statistics_loader is not None
+                else None
+            )
+            sources_append = sources.append
+            deletion_files_setdefault = deletion_files.setdefault
+            fallback_local = None
+
             for i, file_info in enumerate(scan.plan_files()):
-                if file_info.file.file_format != FileFormat.PARQUET:
-                    fallback_reason = (
-                        f"non-parquet format: {file_info.file.file_format}"
-                    )
+                file_format = file_info.file.file_format
+                if file_format != FileFormat.PARQUET:
+                    fallback_local = f"non-parquet format: {file_format}"
                     break
 
-                if file_info.delete_files:
-                    deletion_files[i] = []
-
-                    for deletion_file in file_info.delete_files:
-                        if deletion_file.content != DataFileContent.POSITION_DELETES:
-                            fallback_reason = (
-                                "unsupported deletion file type: "
-                                f"{deletion_file.content}"
+                delete_files = file_info.delete_files
+                if delete_files:
+                    lst = deletion_files_setdefault(i, [])
+                    for deletion_file in delete_files:
+                        content = deletion_file.content
+                        if content != DataFileContent.POSITION_DELETES:
+                            fallback_local = (
+                                f"unsupported deletion file type: {content}"
                             )
                             break
 
                         if deletion_file.file_format != FileFormat.PARQUET:
-                            fallback_reason = (
+                            fallback_local = (
                                 "unsupported deletion file format: "
                                 f"{deletion_file.file_format}"
                             )
                             break
-
-                        deletion_files[i].append(deletion_file.file_path)
+                        lst.append(deletion_file.file_path)
                         total_deletion_files += 1
-
-                if fallback_reason:
+                if fallback_local:
                     break
 
-                missing_field_defaults.push_partition_values(
+                push_partition_values(
                     current_index=i,
                     partition_spec_id=file_info.file.spec_id,
                     partition_values=file_info.file.partition,
                 )
 
-                if statistics_loader is not None:
-                    statistics_loader.push_file_statistics(file_info.file)
+                if statistics_push_file is not None:
+                    statistics_push_file(file_info.file)
 
-                sources.append(file_info.file.file_path)
+                sources_append(file_info.file.file_path)
+
+            if fallback_local:
+                fallback_reason = fallback_local
 
             if verbose:
                 elapsed = perf_counter() - start_time
@@ -265,11 +266,9 @@ class IcebergDataset:
                     f"finish path expansion ({elapsed:.3f}s)"
                 )
 
-        if not fallback_reason:
-            if verbose:
+            if not fallback_reason:
                 s = "" if len(sources) == 1 else "s"
                 s2 = "" if total_deletion_files == 1 else "s"
-
                 eprint(
                     "IcebergDataset: to_dataset_scan(): "
                     f"native scan_parquet(): "
@@ -279,47 +278,46 @@ class IcebergDataset:
                     f"{total_deletion_files} deletion file{s2}"
                 )
 
-            # The arrow schema returned by `schema_to_pyarrow` will contain
-            # 'PARQUET:field_id'
-            column_mapping = schema_to_pyarrow(iceberg_schema)
-
-            identity_transformed_values = missing_field_defaults.finish()
-
-            min_max_statistics = (
-                statistics_loader.finish(len(sources), identity_transformed_values)
-                if statistics_loader is not None
-                else None
-            )
-
-            storage_options = (
-                _convert_iceberg_to_object_store_storage_options(
-                    self._iceberg_storage_properties
+                column_mapping = schema_to_pyarrow(iceberg_schema)
+                identity_transformed_values = missing_field_defaults.finish()
+                min_max_statistics = (
+                    statistics_loader.finish(len(sources), identity_transformed_values)
+                    if statistics_loader is not None
+                    else None
                 )
-                if self._iceberg_storage_properties is not None
-                else None
-            )
+                storage_options = (
+                    _convert_iceberg_to_object_store_storage_options(
+                        self._iceberg_storage_properties
+                    )
+                    if self._iceberg_storage_properties is not None
+                    else None
+                )
 
-            return _NativeIcebergScanData(
-                sources=sources,
-                projected_iceberg_schema=projected_iceberg_schema,
-                column_mapping=column_mapping,
-                default_values=identity_transformed_values,
-                deletion_files=deletion_files,
-                min_max_statistics=min_max_statistics,
-                statistics_loader=statistics_loader,
-                storage_options=storage_options,
-                _snapshot_id_key=snapshot_id_key,
-            )
+                return _NativeIcebergScanData(
+                    sources=sources,
+                    projected_iceberg_schema=projected_iceberg_schema,
+                    column_mapping=column_mapping,
+                    default_values=identity_transformed_values,
+                    deletion_files=deletion_files,
+                    min_max_statistics=min_max_statistics,
+                    statistics_loader=statistics_loader,
+                    storage_options=storage_options,
+                    _snapshot_id_key=snapshot_id_key,
+                )
 
         elif reader_override == "native":
             msg = f"iceberg reader_override='native' failed: {fallback_reason}"
             raise ComputeError(msg)
 
+        # Fallback path: pyiceberg scan
         if verbose:
             eprint(
                 "IcebergDataset: to_dataset_scan(): "
                 f"fallback to python[pyiceberg] scan: {fallback_reason}"
             )
+
+        # Only import schema_to_pyarrow here (was already imported for fast path above!)
+        from pyiceberg.io.pyarrow import schema_to_pyarrow
 
         func = partial(
             _scan_pyarrow_dataset_impl,
@@ -495,7 +493,7 @@ class _PyIcebergScanData(_ResolvedScanDataBase):
 
 def _redact_dict_values(obj: Any) -> Any:
     return (
-        {k: "REDACTED" for k in obj.keys()}  # noqa: SIM118
+        dict.fromkeys(obj.keys(), "REDACTED")
         if isinstance(obj, dict)
         else f"<{type(obj).__name__} object>"
         if obj is not None
