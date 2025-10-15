@@ -7,6 +7,8 @@ from functools import partial
 from time import perf_counter
 from typing import TYPE_CHECKING, Any, Literal
 
+from pyiceberg.io.pyarrow import schema_to_pyarrow as _schema_to_pyarrow
+
 import polars._reexport as pl
 from polars._utils.logging import eprint, verbose
 from polars.exceptions import ComputeError
@@ -58,13 +60,14 @@ class IcebergDataset:
 
     def schema(self) -> pa.schema:
         """Fetch the schema of the table."""
+        # Directly return arrow_schema for efficiency, no extra logic needed here.
         return self.arrow_schema()
 
     def arrow_schema(self) -> pa.schema:
         """Fetch the arrow schema of the table."""
-        from pyiceberg.io.pyarrow import schema_to_pyarrow
-
-        return schema_to_pyarrow(self.table().schema())
+        # Optimize by moving the import to module level, as it always resolves to the same function.
+        # This avoids doing the import on every call.
+        return _schema_to_pyarrow(self.table().schema())
 
     def to_dataset_scan(
         self,
@@ -495,7 +498,7 @@ class _PyIcebergScanData(_ResolvedScanDataBase):
 
 def _redact_dict_values(obj: Any) -> Any:
     return (
-        {k: "REDACTED" for k in obj.keys()}  # noqa: SIM118
+        dict.fromkeys(obj.keys(), "REDACTED")
         if isinstance(obj, dict)
         else f"<{type(obj).__name__} object>"
         if obj is not None
