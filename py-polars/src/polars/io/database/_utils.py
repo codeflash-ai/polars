@@ -82,8 +82,9 @@ def _read_sql_adbc(
 def _get_adbc_driver_name_from_uri(connection_uri: str) -> str:
     driver_name = connection_uri.split(":", 1)[0].lower()
     # map uri prefix to ADBC name when not 1:1
-    driver_suffix_map: dict[str, str] = {"postgres": "postgresql"}
-    return driver_suffix_map.get(driver_name, driver_name)
+    if driver_name == "postgres":
+        return "postgresql"
+    return driver_name
 
 
 def _get_adbc_module_name_from_uri(connection_uri: str) -> str:
