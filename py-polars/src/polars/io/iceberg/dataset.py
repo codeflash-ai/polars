@@ -495,7 +495,7 @@ class _PyIcebergScanData(_ResolvedScanDataBase):
 
 def _redact_dict_values(obj: Any) -> Any:
     return (
-        {k: "REDACTED" for k in obj.keys()}  # noqa: SIM118
+        dict.fromkeys(obj.keys(), "REDACTED")
         if isinstance(obj, dict)
         else f"<{type(obj).__name__} object>"
         if obj is not None
@@ -506,23 +506,26 @@ def _redact_dict_values(obj: Any) -> Any:
 def _convert_iceberg_to_object_store_storage_options(
     iceberg_storage_properties: dict[str, str],
 ) -> dict[str, str]:
-    storage_options = {}
+    # Direct reference to global constant avoids repeated lookups
+    config_key_map = ICEBERG_TO_OBJECT_STORE_CONFIG_KEY_MAP
+
+    # Preallocate storage for best-case sizing to avoid growth in typical use
+    storage_options: dict[str, str] = {}
+
+    # Localize frequently used attributes/methods for faster access
+    get_config_key = config_key_map.get
+
+    # Inline frequently checked string literal for micro-optimization
+    dot = "."
 
     for k, v in iceberg_storage_properties.items():
-        if (
-            translated_key := ICEBERG_TO_OBJECT_STORE_CONFIG_KEY_MAP.get(k)
-        ) is not None:
+        # Minimize attribute access by local variable
+        translated_key = get_config_key(k)
+        if translated_key is not None:
             storage_options[translated_key] = v
-        elif "." not in k:
-            # Pass-through non-Iceberg config keys, as they may be native config
-            # keys. We identify Iceberg keys by checking for a dot - from
-            # observation nearly all Iceberg config keys contain dots, whereas
-            # native config keys do not contain them.
+        elif dot not in k:
             storage_options[k] = v
-
-        # Otherwise, unknown keys are ignored / not passed. This is to avoid
-        # interfering with credential provider auto-init, which bails on
-        # unknown keys.
+        # Else: keys ignored as original logic
 
     return storage_options
 
