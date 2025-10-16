@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import polars._reexport as pl
+from polars._plr import PyDataTypeExpr
 from polars._utils.various import BUILDING_SPHINX_DOCS, sphinx_accessor
 from polars.datatype_expr.array import DataTypeExprArrNameSpace
 from polars.datatype_expr.list import DataTypeExprListNameSpace
@@ -86,7 +87,7 @@ class DataTypeExpr:
 
     @classmethod
     def _from_pydatatype_expr(cls, pydatatype_expr: PyDataTypeExpr) -> DataTypeExpr:
-        slf = cls()
+        slf = object.__new__(cls)
         slf._pydatatype_expr = pydatatype_expr
         return slf
 
