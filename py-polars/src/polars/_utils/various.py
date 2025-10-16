@@ -744,12 +744,13 @@ def qualified_type_name(obj: Any, *, qualify_polars: bool = False) -> str:
     qualify_polars
         If False (default), omit the module path for our own (Polars) objects.
     """
+    # Use type(obj) directly for better performance and readability
     if isinstance(obj, type):
-        module = obj.__module__
-        name = obj.__name__
+        t = obj
     else:
-        module = obj.__class__.__module__
-        name = obj.__class__.__name__
+        t = type(obj)
+    module = t.__module__
+    name = t.__name__
 
     if (
         not module

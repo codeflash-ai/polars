@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Any, Callable, overload
 
+import polars._plr as plr
 import polars._reexport as pl
 import polars.functions as F
 import polars.selectors as cs
@@ -1722,16 +1723,19 @@ def arctan2(y: str | Expr, x: str | Expr) -> Expr:
     │ -0.707107 ┆ -0.707107 ┆ -2.356194 │
     └───────────┴───────────┴───────────┘
     """
+    # Early error-out before unnecessary computation
+    if not (isinstance(y, str) or hasattr(y, "_pyexpr")):
+        msg = f"`arctan2` expected a `str` or `Expr` got a `{qualified_type_name(y)}`"
+        raise TypeError(msg)
+    if not (isinstance(x, str) or hasattr(x, "_pyexpr")):
+        msg = f"`arctan2` expected a `str` or `Expr` got a `{qualified_type_name(x)}`"
+        raise TypeError(msg)
+
+    # Only call F.col if actually needed
     if isinstance(y, str):
         y = F.col(y)
     if isinstance(x, str):
         x = F.col(x)
-    if not hasattr(x, "_pyexpr"):
-        msg = f"`arctan2` expected a `str` or `Expr` got a `{qualified_type_name(x)}`"
-        raise TypeError(msg)
-    if not hasattr(y, "_pyexpr"):
-        msg = f"`arctan2` expected a `str` or `Expr` got a `{qualified_type_name(y)}`"
-        raise TypeError(msg)
 
     return wrap_expr(plr.arctan2(y._pyexpr, x._pyexpr))
 
