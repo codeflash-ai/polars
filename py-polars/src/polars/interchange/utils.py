@@ -30,6 +30,10 @@ if TYPE_CHECKING:
     from polars.datatypes import DataTypeClass
     from polars.interchange.protocol import Dtype
 
+_TS_REGEX = re.compile(r"ts([mun]):(.*)")
+
+_TD_REGEX = re.compile(r"tD([mun])")
+
 NE = Endianness.NATIVE
 
 polars_dtype_to_dtype_map: dict[DataTypeClass, Dtype] = {
@@ -113,31 +117,40 @@ def dtype_to_polars_dtype(dtype: Dtype) -> PolarsDataType:
     """Convert interchange protocol data type to Polars data type."""
     kind, bit_width, format_str, _ = dtype
 
+    # Put if-elif checks in order of expected hit frequency
+    # Avoid unnecessary try/except for known kinds for efficiency
     if kind == DtypeKind.DATETIME:
         return _temporal_dtype_to_polars_dtype(format_str, dtype)
-    elif kind == DtypeKind.CATEGORICAL:
+    if kind == DtypeKind.CATEGORICAL:
         return Enum
 
-    try:
-        return dtype_to_polars_dtype_map[kind][bit_width]
-    except KeyError as exc:
-        msg = f"unsupported data type: {dtype!r}"
-        raise NotImplementedError(msg) from exc
+    # Fast-path dict lookup; catching both possible KeyErrors at once
+    dtype_inner_map = dtype_to_polars_dtype_map.get(kind)
+    if dtype_inner_map is not None:
+        polars_dtype = dtype_inner_map.get(bit_width)
+        if polars_dtype is not None:
+            return polars_dtype
+
+    msg = f"unsupported data type: {dtype!r}"
+    raise NotImplementedError(msg)
 
 
 def _temporal_dtype_to_polars_dtype(format_str: str, dtype: Dtype) -> PolarsDataType:
-    if (match := re.fullmatch(r"ts([mun]):(.*)", format_str)) is not None:
+    # Use pre-compiled regex for repeated calls
+    match = _TS_REGEX.fullmatch(format_str)
+    if match is not None:
         time_unit = match.group(1) + "s"
         time_zone = match.group(2) or None
         return Datetime(
             time_unit=time_unit,  # type: ignore[arg-type]
             time_zone=time_zone,
         )
-    elif format_str == "tdD":
+    if format_str == "tdD":
         return Date
-    elif format_str == "ttu":
+    if format_str == "ttu":
         return Time
-    elif (match := re.fullmatch(r"tD([mun])", format_str)) is not None:
+    match = _TD_REGEX.fullmatch(format_str)
+    if match is not None:
         time_unit = match.group(1) + "s"
         return Duration(time_unit=time_unit)  # type: ignore[arg-type]
 
