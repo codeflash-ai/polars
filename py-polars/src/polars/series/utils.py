@@ -38,59 +38,57 @@ def expr_dispatch(cls: type[T]) -> type[T]:
     namespace = getattr(cls, "_accessor", None)
     expr_lookup = _expr_lookup(namespace)
 
-    for name in dir(cls):
-        if (
-            # private
-            not name.startswith("_")
-            # Avoid error when building docs
-            # https://github.com/pola-rs/polars/pull/13238#discussion_r1438787093
-            # TODO: is there a better way to do this?
-            and name != "plot"
-        ):
-            attr = getattr(cls, name)
+    # Use cls.__dict__ for faster direct access to class attributes
+    # Only visit attributes directly declared in the class, not in its parents
+    for name, attr in cls.__dict__.items():
+        if not name.startswith("_") and name != "plot":
             if callable(attr):
-                attr = _undecorated(attr)
-                # note: `co_varnames` starts with the function args, but needs to be
-                # constrained by `co_argcount` as it also includes function-level consts
-                args = attr.__code__.co_varnames[: attr.__code__.co_argcount]
-                # if an expression method with compatible method exists, further check
-                # that the series implementation has an empty function body
-                if (namespace, name, args) in expr_lookup and _is_empty_method(attr):
+                attr_undecorated = _undecorated(attr)
+                fc = attr_undecorated.__code__
+                args = fc.co_varnames[: fc.co_argcount]
+                if (namespace, name, args) in expr_lookup and _is_empty_method(
+                    attr_undecorated
+                ):
                     setattr(cls, name, call_expr(attr))
     return cls
 
 
 def _expr_lookup(namespace: str | None) -> set[tuple[str | None, str, tuple[str, ...]]]:
     """Create lookup of potential Expr methods (in the given namespace)."""
-    # dummy Expr object that we can introspect
     expr = pl.Expr()
     expr._pyexpr = None  # type: ignore[assignment]
 
-    # optional indirection to "expr.str", "expr.dt", etc
     if namespace is not None:
         expr = getattr(expr, namespace)
 
     lookup = set()
-    for name in dir(expr):
+    expr_dir = dir(expr)
+    for name in expr_dir:
         if not name.startswith("_"):
             try:
                 m = getattr(expr, name)
-            except AttributeError:  # may raise for @property methods
+            except AttributeError:
                 continue
             if callable(m):
-                # add function signature (argument names only) to the lookup
-                # as a _possible_ candidate for expression-dispatch
-                m = _undecorated(m)
-                args = m.__code__.co_varnames[: m.__code__.co_argcount]
+                m_undecorated = _undecorated(m)
+                fc = m_undecorated.__code__
+                args = fc.co_varnames[: fc.co_argcount]
+                # use tuple instead of list for args to ensure hashability and equality
                 lookup.add((namespace, name, args))
     return lookup
 
 
 def _undecorated(function: Callable[P, T]) -> Callable[P, T]:
     """Return the given function without any decorators."""
-    while hasattr(function, "__wrapped__"):
-        function = function.__wrapped__
-    return function
+    # Localize attribute lookup for performance
+    attr = "__wrapped__"
+    f = function
+    try:
+        # Eliminate attribute lookup overhead via direct access
+        while True:
+            f = object.__getattribute__(f, attr)
+    except AttributeError:
+        return f
 
 
 def call_expr(func: SeriesMethod) -> SeriesMethod:
@@ -100,13 +98,12 @@ def call_expr(func: SeriesMethod) -> SeriesMethod:
     def wrapper(self: Any, *args: P.args, **kwargs: P.kwargs) -> Series:
         s = wrap_s(self._s)
         expr = F.col(s.name)
-        if (namespace := getattr(self, "_accessor", None)) is not None:
+        namespace = getattr(self, "_accessor", None)
+        if namespace is not None:
             expr = getattr(expr, namespace)
         f = getattr(expr, func.__name__)
         return s.to_frame().select_seq(f(*args, **kwargs)).to_series()
 
-    # note: applying explicit '__signature__' helps IDEs (especially PyCharm)
-    # with proper autocomplete, in addition to what @functools.wraps does
     setattr(wrapper, "__signature__", inspect.signature(func))  # noqa: B010
     return wrapper
 
@@ -121,10 +118,12 @@ def _is_empty_method(func: SeriesMethod) -> bool:
     - has no docstring and just contains 'pass' (or equivalent)
     """
     fc = func.__code__
-    return (fc.co_code in _EMPTY_BYTECODE) and (
-        (len(fc.co_consts) == 2 and fc.co_consts[1] is None)
-        # account for optimized-out docstrings (eg: running 'python -OO')
-        or (sys.flags.optimize == 2 and fc.co_consts == (None,))
+    # Short-circuit for most common case before doing flag/consts check
+    # This avoids unnecessary python-level tuple/len calls for methods with non-matching bytecode
+    if fc.co_code not in _EMPTY_BYTECODE:
+        return False
+    return (len(fc.co_consts) == 2 and fc.co_consts[1] is None) or (
+        sys.flags.optimize == 2 and fc.co_consts == (None,)
     )
 
 
