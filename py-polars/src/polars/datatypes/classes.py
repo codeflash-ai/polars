@@ -178,7 +178,7 @@ class DataType(metaclass=DataTypeClass):
         >>> pl.List.is_(pl.List(pl.Int32))
         False
         """
-        return self == other and hash(self) == hash(other)
+        return type(self) is type(other) and hash(self) == hash(other)
 
     @classmethod
     def is_numeric(cls) -> bool:
