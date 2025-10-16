@@ -203,44 +203,52 @@ def _might_be(cls: type, type_: str) -> bool:
     # module (in which case it's reasonable to do a real isinstance check;
     # we defer that so as not to unnecessarily trigger module import)
     try:
-        return any(f"{type_}." in str(o) for o in cls.mro())
+        mro_str = cls.__mro__ if hasattr(cls, "__mro__") else cls.mro()
+        type_str = f"{type_}."
+        # faster loop: str(x) in local, scan once
+        for o in mro_str:
+            if type_str in o.__module__:
+                return True
+        return False
     except TypeError:
         return False
 
 
 def _check_for_numpy(obj: Any, *, check_type: bool = True) -> bool:
     return _NUMPY_AVAILABLE and _might_be(
-        cast(Hashable, type(obj) if check_type else obj), "numpy"
+        cast("Hashable", type(obj) if check_type else obj), "numpy"
     )
 
 
 def _check_for_pandas(obj: Any, *, check_type: bool = True) -> bool:
     return _PANDAS_AVAILABLE and _might_be(
-        cast(Hashable, type(obj) if check_type else obj), "pandas"
+        cast("Hashable", type(obj) if check_type else obj), "pandas"
     )
 
 
 def _check_for_pyarrow(obj: Any, *, check_type: bool = True) -> bool:
     return _PYARROW_AVAILABLE and _might_be(
-        cast(Hashable, type(obj) if check_type else obj), "pyarrow"
+        cast("Hashable", type(obj) if check_type else obj), "pyarrow"
     )
 
 
 def _check_for_pydantic(obj: Any, *, check_type: bool = True) -> bool:
+    # avoid repeated f-string construction and str() conversion in _might_be
+    # by passing the type directly and checking the __module__ attribute instead of str(o)
     return _PYDANTIC_AVAILABLE and _might_be(
-        cast(Hashable, type(obj) if check_type else obj), "pydantic"
+        cast("Hashable", type(obj) if check_type else obj), "pydantic"
     )
 
 
 def _check_for_torch(obj: Any, *, check_type: bool = True) -> bool:
     return _TORCH_AVAILABLE and _might_be(
-        cast(Hashable, type(obj) if check_type else obj), "torch"
+        cast("Hashable", type(obj) if check_type else obj), "torch"
     )
 
 
 def _check_for_pytz(obj: Any, *, check_type: bool = True) -> bool:
     return _PYTZ_AVAILABLE and _might_be(
-        cast(Hashable, type(obj) if check_type else obj), "pytz"
+        cast("Hashable", type(obj) if check_type else obj), "pytz"
     )
 
 
