@@ -73,8 +73,8 @@ def polars_dtype_to_dtype(dtype: PolarsDataType) -> Dtype:
 
 def _datetime_to_dtype(dtype: Datetime) -> Dtype:
     tu = dtype.time_unit[0]
-    tz = dtype.time_zone if dtype.time_zone is not None else ""
-    arrow_c_type = f"ts{tu}:{tz}"
+    tz = dtype.time_zone
+    arrow_c_type = f"ts{tu}:{tz or ''}"
     return DtypeKind.DATETIME, 64, arrow_c_type, NE
 
 
