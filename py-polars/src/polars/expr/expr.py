@@ -65,6 +65,8 @@ from polars.expr.string import ExprStringNameSpace
 from polars.expr.struct import ExprStructNameSpace
 from polars.meta import thread_pool_size
 
+_LOG2 = 0.6931471805599453
+
 with contextlib.suppress(ImportError):  # Module not available when building docs
     from polars._plr import arg_where as py_arg_where
 
@@ -11232,7 +11234,9 @@ def _prepare_alpha(
     alpha: float | int | None = None,
 ) -> float:
     """Normalise EWM decay specification in terms of smoothing factor 'alpha'."""
-    if sum((param is not None) for param in (com, span, half_life, alpha)) > 1:
+    if (com is not None) + (span is not None) + (half_life is not None) + (
+        alpha is not None
+    ) > 1:
         msg = (
             "parameters `com`, `span`, `half_life`, and `alpha` are mutually exclusive"
         )
@@ -11253,7 +11257,7 @@ def _prepare_alpha(
         if half_life <= 0.0:
             msg = f"require `half_life` > 0 (found {half_life!r})"
             raise ValueError(msg)
-        alpha = 1.0 - math.exp(-math.log(2.0) / half_life)
+        alpha = 1.0 - math.exp(-_LOG2 / half_life)
 
     elif alpha is None:
         msg = "one of `com`, `span`, `half_life`, or `alpha` must be set"
