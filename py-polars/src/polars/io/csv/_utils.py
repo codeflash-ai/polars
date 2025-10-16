@@ -31,8 +31,10 @@ def _check_arg_is_1byte(
 def _update_columns(df: DataFrame, new_columns: Sequence[str]) -> DataFrame:
     if df.width > len(new_columns):
         cols = df.columns
-        for i, name in enumerate(new_columns):
-            cols[i] = name
+        cols[: len(new_columns)] = new_columns
         new_columns = cols
-    df.columns = list(new_columns)
+    if isinstance(new_columns, list):
+        df.columns = new_columns
+    else:
+        df.columns = list(new_columns)
     return df
