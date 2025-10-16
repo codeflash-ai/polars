@@ -48,10 +48,18 @@ def try_get_type_hints(obj: type) -> dict[str, Any]:
 @lru_cache(64)
 def is_namedtuple(cls: Any, *, annotated: bool = False) -> bool:
     """Check if given class derives from NamedTuple."""
-    if all(hasattr(cls, attr) for attr in ("_fields", "_field_defaults", "_replace")):
-        if not isinstance(cls._fields, property):
-            if not annotated or len(cls.__annotations__) == len(cls._fields):
-                return all(isinstance(fld, str) for fld in cls._fields)
+    # Short-circuit quickly for common cases
+    try:
+        fields = cls._fields
+        if not isinstance(fields, property):
+            if all(
+                hasattr(cls, attr)
+                for attr in ("_fields", "_field_defaults", "_replace")
+            ):
+                if not annotated or len(cls.__annotations__) == len(fields):
+                    return all(isinstance(fld, str) for fld in fields)
+    except AttributeError:
+        return False
     return False
 
 
@@ -79,13 +87,20 @@ def get_first_non_none(values: Sequence[Any | None]) -> Any:
 
 def nt_unpack(obj: Any) -> Any:
     """Recursively unpack a nested NamedTuple."""
-    if isinstance(obj, dict):
+    # Optimize instance type checks by using 'type' instead of 'isinstance'
+    t = type(obj)
+
+    if t is dict:
+        # Bypass method resolution for vanilla dicts for faster loop
         return {key: nt_unpack(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
+    elif t is list:
+        # Bypass method resolution for vanilla lists for faster loop
         return [nt_unpack(value) for value in obj]
-    elif is_namedtuple(obj.__class__):
+    elif hasattr(obj, "_fields") and is_namedtuple(t):
+        # Only check for is_namedtuple if _fields exist
         return {key: nt_unpack(value) for key, value in obj._asdict().items()}
-    elif isinstance(obj, tuple):
+    elif t is tuple:
+        # Bypass method resolution for vanilla tuples
         return tuple(nt_unpack(value) for value in obj)
     else:
         return obj
