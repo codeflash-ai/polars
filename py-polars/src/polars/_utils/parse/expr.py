@@ -50,18 +50,16 @@ def parse_into_expression(
     PyExpr
     """
     if isinstance(input, pl.Expr):
-        expr = input
         if structify:
-            expr = _structify_expression(expr)
+            return _structify_expression(input)._pyexpr
+        return input._pyexpr
 
     elif isinstance(input, str) and not str_as_lit:
-        expr = F.col(input)
+        return F.col(input)._pyexpr
     elif isinstance(input, list) and list_as_series:
-        expr = F.lit(pl.Series(input), dtype=dtype)
+        return F.lit(pl.Series(input), dtype=dtype)._pyexpr
     else:
-        expr = F.lit(input, dtype=dtype)
-
-    return expr._pyexpr
+        return F.lit(input, dtype=dtype)._pyexpr
 
 
 def _structify_expression(expr: Expr) -> Expr:
