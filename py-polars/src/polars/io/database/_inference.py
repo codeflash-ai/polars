@@ -38,6 +38,10 @@ from polars.datatypes.group import (
 if TYPE_CHECKING:
     from polars._typing import PolarsDataType
 
+_PRECISION_TO_UNIT = {3: "ms", 6: "us", 9: "ns"}
+
+_VALID_STR_UNITS = {"s", "ms", "us", "ns"}
+
 
 def dtype_from_database_typename(
     value: str,
@@ -298,17 +302,26 @@ def timeunit_from_precision(precision: int | str | None) -> str | None:
     >>> timeunit_from_precision(7)
     'ns'
     """
-    from math import ceil
-
     if not precision:
         return None
-    elif isinstance(precision, str):
+    if isinstance(precision, str):
         if precision.isdigit():
             precision = int(precision)
-        elif (precision := precision.lower()) in ("s", "ms", "us", "ns"):
-            return "ms" if precision == "s" else precision
+        else:
+            precision_lc = precision.lower()
+            if precision_lc in _VALID_STR_UNITS:
+                return "ms" if precision_lc == "s" else precision_lc
+            else:
+                return None
     try:
-        n = min(max(3, int(ceil(precision / 3)) * 3), 9)  # type: ignore[operator]
-        return {3: "ms", 6: "us", 9: "ns"}.get(n)
-    except TypeError:
+        v = int(precision)
+        # Faster calculation than min(max(3, ((v + 2) // 3) * 3), 9)
+        if v <= 3:
+            n = 3
+        elif v <= 6:
+            n = 6
+        else:
+            n = 9
+        return _PRECISION_TO_UNIT.get(n)
+    except (TypeError, ValueError):
         return None
