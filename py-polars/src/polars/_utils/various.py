@@ -6,41 +6,22 @@ import re
 import sys
 import warnings
 from collections import Counter
-from collections.abc import (
-    Collection,
-    Generator,
-    Iterable,
-    MappingView,
-    Sequence,
-    Sized,
-)
+from collections.abc import (Collection, Generator, Iterable, MappingView,
+                             Sequence, Sized)
 from enum import Enum
 from io import BytesIO
 from pathlib import Path
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Callable,
-    Literal,
-    TypeVar,
-    overload,
-)
+from typing import TYPE_CHECKING, Any, Callable, Literal, TypeVar, overload
 
 import polars as pl
 from polars import functions as F
-from polars._dependencies import _check_for_numpy, import_optional, subprocess
+from polars._dependencies import _check_for_numpy, import_optional
 from polars._dependencies import numpy as np
-from polars.datatypes import (
-    Boolean,
-    Date,
-    Datetime,
-    Decimal,
-    Duration,
-    Int64,
-    String,
-    Time,
-)
+from polars._dependencies import subprocess
+from polars.datatypes import (Boolean, Date, Datetime, Decimal, Duration,
+                              Int64, String, Time)
 from polars.datatypes.group import FLOAT_DTYPES, INTEGER_DTYPES
+from typing_extensions import TypeGuard
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping, Reversible
@@ -104,11 +85,31 @@ def is_path_or_str_sequence(
         return np.issubdtype(val.dtype, np.str_)
     elif include_series and isinstance(val, pl.Series):
         return val.dtype == pl.String
-    return (
-        not isinstance(val, bytes)
-        and isinstance(val, Sequence)
-        and _is_iterable_of(val, (Path, str))
-    )
+    # Fastest-out: must be a non-bytes Sequence
+    if isinstance(val, bytes) or not isinstance(val, Sequence):
+        return False
+    # Empty sequence is acceptable (no elements to violate type)
+    if not val:
+        return True
+
+    first = val[0]
+    first_type = type(first)
+
+    # Fast path: if all elements are of same type as first, and first is str or Path, assume homogeneous (common in ETL/data)
+    if first_type in (str, Path):
+        for x in val:
+            if type(x) is not first_type:
+                # Fallback: allow mixing str and Path, but only these types
+                break
+        else:
+            return True
+        # check generic case below
+
+    # Fallback: check all elements are either str or Path, break on first mismatch
+    for x in val:
+        if not isinstance(x, (str, Path)):
+            return False
+    return True
 
 
 def is_bool_sequence(
