@@ -6,6 +6,8 @@ from typing import Any, Generic, TypeVar
 from polars._typing import PartitioningScheme
 from polars._utils.various import is_path_or_str_sequence
 
+_AZURE_SCHEMES = {"az", "azure", "adl", "abfs", "abfss"}
+
 T = TypeVar("T")
 
 
@@ -54,17 +56,26 @@ def _get_path_scheme(path: str | Path) -> str | None:
 
 
 def _is_aws_cloud(*, scheme: str, first_scan_path: str) -> bool:
-    if any(scheme == x for x in ["s3", "s3a"]):
+    # Fast path for s3 and s3a schemes
+    if scheme == "s3" or scheme == "s3a":
         return True
 
+    # Fast path for http/https schemes only
     if scheme == "http" or scheme == "https":
+        # The next two lines previously used .find, which is fast for substring search,
+        # but we can skip the search if ".s3." is definitely not present
+        # We can use partition and rfind to slightly reduce work for the second delimiter
         bucket_end = first_scan_path.find(".s3.")
-        region_end = first_scan_path.find(".amazonaws.com/", bucket_end + 4)
+        if bucket_end == -1:
+            return False
 
-        if (
-            first_scan_path.find("/", len(scheme) + 3, region_end) > 0
-            or "?" in first_scan_path
-        ):
+        region_start = bucket_end + 4
+        region_end = first_scan_path.find(".amazonaws.com/", region_start)
+        if region_end == -1:
+            return False
+
+        slash_pos = first_scan_path.find("/", len(scheme) + 3, region_end)
+        if slash_pos > 0 or "?" in first_scan_path:
             return False
 
         return 0 < bucket_end < region_end
@@ -73,7 +84,7 @@ def _is_aws_cloud(*, scheme: str, first_scan_path: str) -> bool:
 
 
 def _is_azure_cloud(scheme: str) -> bool:
-    return any(scheme == x for x in ["az", "azure", "adl", "abfs", "abfss"])
+    return scheme in _AZURE_SCHEMES
 
 
 def _is_gcp_cloud(scheme: str) -> bool:
