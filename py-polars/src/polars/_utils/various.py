@@ -535,7 +535,11 @@ def _get_stack_locals(
     if n_frames is None:
         n_frames = sys.maxsize
 
-    if inspect.isfunction(of_type):
+    if of_type is None:
+
+        def matches_type(obj: Any) -> bool:
+            return True
+    elif callable(of_type):
         matches_type = of_type
     else:
         if isinstance(of_type, Collection):
@@ -544,22 +548,19 @@ def _get_stack_locals(
         def matches_type(obj: Any) -> bool:  # type: ignore[misc]
             return isinstance(obj, of_type)  # type: ignore[arg-type]
 
-    if named is not None:
-        if isinstance(named, str):
-            named = (named,)
-        elif not isinstance(named, set):
-            named = set(named)
+    if named is not None and not isinstance(named, set):
+        named = set(named)
 
     stack_frame = inspect.currentframe()
     stack_frame = getattr(stack_frame, "f_back", None)
     try:
         while stack_frame and examined_frames < n_frames:
-            local_items = list(stack_frame.f_locals.items())
-            for nm, obj in reversed(local_items):
+            local_items = stack_frame.f_locals.items()
+            for nm, obj in reversed(list(local_items)):
                 if (
                     nm not in objects
                     and (named is None or nm in named)
-                    and (of_type is None or matches_type(obj))
+                    and matches_type(obj)
                 ):
                     objects[nm] = obj
                     if n_objects is not None and len(objects) >= n_objects:

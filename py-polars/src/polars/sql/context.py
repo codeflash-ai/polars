@@ -10,9 +10,12 @@ from typing import (
     overload,
 )
 
+from typing_extensions import Self, TypeAlias
+
 from polars._dependencies import _check_for_pandas, _check_for_pyarrow
 from polars._dependencies import pandas as pd
 from polars._dependencies import pyarrow as pa
+from polars._plr import PySQLContext
 from polars._typing import FrameType
 from polars._utils.deprecation import deprecate_renamed_parameter
 from polars._utils.pycapsule import is_pycapsule
@@ -110,44 +113,209 @@ class SQLContext(Generic[FrameType]):
     _eager_execution: Final[bool]
     _tables_scope_stack: list[set[str]]
 
-    # note: the type-overloaded methods are required to support accurate typing
-    # of the frame return from "execute" (which may be DataFrame or LazyFrame),
-    # as that is influenced by both the "eager" flag at init-time AND the "eager"
-    # flag at query-time (if anyone can find a lighter-weight set of annotations
-    # that successfully resolves this, please go for it... ;)
-
-    @overload
+    @deprecate_renamed_parameter("eager_execution", "eager", version="0.20.31")
     def __init__(
-        self: SQLContext[LazyFrame],
-        frames: Mapping[str, CompatibleFrameType | None] | None = ...,
+        self,
+        frames: Mapping[str, CompatibleFrameType | None] | None = None,
         *,
-        register_globals: bool | int = ...,
-        all_compatible: bool = ...,
-        eager: Literal[False] = False,
+        register_globals: bool | int = False,
+        eager: bool = False,
         **named_frames: CompatibleFrameType | None,
-    ) -> None: ...
+    ) -> None:
+        """
+        Initialize a new `SQLContext`.
 
-    @overload
-    def __init__(
-        self: SQLContext[DataFrame],
-        frames: Mapping[str, CompatibleFrameType | None] | None = ...,
-        *,
-        register_globals: bool | int = ...,
-        all_compatible: bool = ...,
-        eager: Literal[True],
-        **named_frames: CompatibleFrameType | None,
-    ) -> None: ...
+        .. versionchanged:: 0.20.31
+            The `eager_execution` parameter was renamed `eager`.
 
-    @overload
+        Parameters
+        ----------
+        frames
+            A `{name:frame, ...}` mapping which can include Polars frames *and*
+            pandas DataFrames, Series and pyarrow Table and RecordBatch objects.
+        register_globals
+            Register compatible objects (polars DataFrame, LazyFrame, and Series) found
+            in the globals, automatically mapping their variable name to a table name.
+            To register other objects (pandas/pyarrow data) pass them explicitly, or
+            call the `execute_global` classmethod. If given an integer then only the
+            most recent "n" objects found will be registered.
+        eager
+            If True, returns execution results as `DataFrame` instead of `LazyFrame`.
+            (Note that the query itself is always executed in lazy-mode; this parameter
+            impacts whether :meth:`execute` returns an eager or lazy result frame).
+        **named_frames
+            Named eager/lazy frames, provided as kwargs.
+
+        Examples
+        --------
+        >>> lf = pl.LazyFrame({"a": [1, 2, 3], "b": ["x", None, "z"]})
+        >>> res = pl.SQLContext(frame=lf).execute(
+        ...     "SELECT b, a*2 AS two_a FROM frame WHERE b IS NOT NULL"
+        ... )
+        >>> res.collect()
+        shape: (2, 2)
+        ┌─────┬───────┐
+        │ b   ┆ two_a │
+        │ --- ┆ ---   │
+        │ str ┆ i64   │
+        ╞═════╪═══════╡
+        │ x   ┆ 2     │
+        │ z   ┆ 6     │
+        └─────┴───────┘
+        """
+        issue_unstable_warning(
+            "`SQLContext` is considered **unstable**, although it is close to being considered stable."
+        )
+        self._ctxt = PySQLContext.new()
+        self._eager_execution = eager
+
+        frames = dict(frames or {})
+        if register_globals:
+            for name, obj in _get_frame_locals(
+                all_compatible=False,
+            ).items():
+                if name not in frames and name not in named_frames:
+                    named_frames[name] = obj
+
+        if frames or named_frames:
+            frames.update(named_frames)
+            self.register_many(frames)
+
+    @deprecate_renamed_parameter("eager_execution", "eager", version="0.20.31")
     def __init__(
-        self: SQLContext[DataFrame],
-        frames: Mapping[str, CompatibleFrameType | None] | None = ...,
+        self,
+        frames: Mapping[str, CompatibleFrameType | None] | None = None,
         *,
-        register_globals: bool | int = ...,
-        all_compatible: bool = ...,
-        eager: bool,
+        register_globals: bool | int = False,
+        eager: bool = False,
         **named_frames: CompatibleFrameType | None,
-    ) -> None: ...
+    ) -> None:
+        """
+        Initialize a new `SQLContext`.
+
+        .. versionchanged:: 0.20.31
+            The `eager_execution` parameter was renamed `eager`.
+
+        Parameters
+        ----------
+        frames
+            A `{name:frame, ...}` mapping which can include Polars frames *and*
+            pandas DataFrames, Series and pyarrow Table and RecordBatch objects.
+        register_globals
+            Register compatible objects (polars DataFrame, LazyFrame, and Series) found
+            in the globals, automatically mapping their variable name to a table name.
+            To register other objects (pandas/pyarrow data) pass them explicitly, or
+            call the `execute_global` classmethod. If given an integer then only the
+            most recent "n" objects found will be registered.
+        eager
+            If True, returns execution results as `DataFrame` instead of `LazyFrame`.
+            (Note that the query itself is always executed in lazy-mode; this parameter
+            impacts whether :meth:`execute` returns an eager or lazy result frame).
+        **named_frames
+            Named eager/lazy frames, provided as kwargs.
+
+        Examples
+        --------
+        >>> lf = pl.LazyFrame({"a": [1, 2, 3], "b": ["x", None, "z"]})
+        >>> res = pl.SQLContext(frame=lf).execute(
+        ...     "SELECT b, a*2 AS two_a FROM frame WHERE b IS NOT NULL"
+        ... )
+        >>> res.collect()
+        shape: (2, 2)
+        ┌─────┬───────┐
+        │ b   ┆ two_a │
+        │ --- ┆ ---   │
+        │ str ┆ i64   │
+        ╞═════╪═══════╡
+        │ x   ┆ 2     │
+        │ z   ┆ 6     │
+        └─────┴───────┘
+        """
+        issue_unstable_warning(
+            "`SQLContext` is considered **unstable**, although it is close to being considered stable."
+        )
+        self._ctxt = PySQLContext.new()
+        self._eager_execution = eager
+
+        frames = dict(frames or {})
+        if register_globals:
+            for name, obj in _get_frame_locals(
+                all_compatible=False,
+            ).items():
+                if name not in frames and name not in named_frames:
+                    named_frames[name] = obj
+
+        if frames or named_frames:
+            frames.update(named_frames)
+            self.register_many(frames)
+
+    @deprecate_renamed_parameter("eager_execution", "eager", version="0.20.31")
+    def __init__(
+        self,
+        frames: Mapping[str, CompatibleFrameType | None] | None = None,
+        *,
+        register_globals: bool | int = False,
+        eager: bool = False,
+        **named_frames: CompatibleFrameType | None,
+    ) -> None:
+        """
+        Initialize a new `SQLContext`.
+
+        .. versionchanged:: 0.20.31
+            The `eager_execution` parameter was renamed `eager`.
+
+        Parameters
+        ----------
+        frames
+            A `{name:frame, ...}` mapping which can include Polars frames *and*
+            pandas DataFrames, Series and pyarrow Table and RecordBatch objects.
+        register_globals
+            Register compatible objects (polars DataFrame, LazyFrame, and Series) found
+            in the globals, automatically mapping their variable name to a table name.
+            To register other objects (pandas/pyarrow data) pass them explicitly, or
+            call the `execute_global` classmethod. If given an integer then only the
+            most recent "n" objects found will be registered.
+        eager
+            If True, returns execution results as `DataFrame` instead of `LazyFrame`.
+            (Note that the query itself is always executed in lazy-mode; this parameter
+            impacts whether :meth:`execute` returns an eager or lazy result frame).
+        **named_frames
+            Named eager/lazy frames, provided as kwargs.
+
+        Examples
+        --------
+        >>> lf = pl.LazyFrame({"a": [1, 2, 3], "b": ["x", None, "z"]})
+        >>> res = pl.SQLContext(frame=lf).execute(
+        ...     "SELECT b, a*2 AS two_a FROM frame WHERE b IS NOT NULL"
+        ... )
+        >>> res.collect()
+        shape: (2, 2)
+        ┌─────┬───────┐
+        │ b   ┆ two_a │
+        │ --- ┆ ---   │
+        │ str ┆ i64   │
+        ╞═════╪═══════╡
+        │ x   ┆ 2     │
+        │ z   ┆ 6     │
+        └─────┴───────┘
+        """
+        issue_unstable_warning(
+            "`SQLContext` is considered **unstable**, although it is close to being considered stable."
+        )
+        self._ctxt = PySQLContext.new()
+        self._eager_execution = eager
+
+        frames = dict(frames or {})
+        if register_globals:
+            for name, obj in _get_frame_locals(
+                all_compatible=False,
+            ).items():
+                if name not in frames and name not in named_frames:
+                    named_frames[name] = obj
+
+        if frames or named_frames:
+            frames.update(named_frames)
+            self.register_many(frames)
 
     @deprecate_renamed_parameter("eager_execution", "eager", version="0.20.31")
     def __init__(
