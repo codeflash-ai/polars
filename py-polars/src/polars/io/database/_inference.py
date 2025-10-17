@@ -38,6 +38,18 @@ from polars.datatypes.group import (
 if TYPE_CHECKING:
     from polars._typing import PolarsDataType
 
+_PAREN_PATTERN = re.compile(r"\([\w,: ]+\)$")
+
+_BRACKET_PATTERN = re.compile(r"\[[\w,\]\[: ]+]$")
+
+_CLEAN_VALUE_PATTERN = re.compile(r"\d")
+
+_LEADING_NON_DIGITS_PATTERN = re.compile(r"^\D+")
+
+_WOF_PATTERN = re.compile(r"\WOF\W")
+
+_NON_WORD_PATTERN = re.compile(r"\W")
+
 
 def dtype_from_database_typename(
     value: str,
@@ -65,23 +77,29 @@ def dtype_from_database_typename(
     value = value.upper().replace("TYPE", "")
 
     # extract optional type modifier (eg: 'VARCHAR(64)' -> '64')
-    if re.search(r"\([\w,: ]+\)$", value):
-        modifier = value[value.find("(") + 1 : -1]
+    if _PAREN_PATTERN.search(value):
+        idx = value.find("(")
+        modifier = value[idx + 1 : -1]
         value = value.split("(")[0]
     elif (
-        not value.startswith(("<", ">")) and re.search(r"\[[\w,\]\[: ]+]$", value)
+        not value.startswith(("<", ">")) and _BRACKET_PATTERN.search(value)
     ) or value.endswith(("[S]", "[MS]", "[US]", "[NS]")):
-        modifier = value[value.find("[") + 1 : -1]
+        idx = value.find("[")
+        modifier = value[idx + 1 : -1]
         value = value.split("[")[0]
     else:
         modifier = ""
 
-    # array dtypes
+    # Array dtypes
     array_aliases = ("ARRAY", "LIST", "[]")
     if value.endswith(array_aliases) or value.startswith(array_aliases):
+        # Remove array alias substring once from start or end
         for a in array_aliases:
-            value = value.replace(a, "", 1) if value else ""
-
+            if value.startswith(a):
+                value = value[len(a) :]
+            if value.endswith(a):
+                value = value[: -len(a)]
+        value = value if value else ""
         nested: PolarsDataType | None = None
         if not value and modifier:
             nested = dtype_from_database_typename(
@@ -89,12 +107,20 @@ def dtype_from_database_typename(
                 raise_unmatched=False,
             )
         else:
-            if inner_value := dtype_from_database_typename(
-                value[1:-1]
-                if (value[0], value[-1]) == ("<", ">")
-                else re.sub(r"\W", "", re.sub(r"\WOF\W", "", value)),
-                raise_unmatched=False,
-            ):
+            if value and (value[0], value[-1]) == ("<", ">"):
+                inner_val = value[1:-1]
+            else:
+                # Remove 'OF' and all non-word chars in one go using precompiled patterns
+                inner_val = _NON_WORD_PATTERN.sub("", _WOF_PATTERN.sub("", value))
+            inner_value = (
+                dtype_from_database_typename(
+                    inner_val,
+                    raise_unmatched=False,
+                )
+                if value
+                else None
+            )
+            if inner_value:
                 nested = inner_value
             elif modifier:
                 nested = dtype_from_database_typename(
@@ -118,9 +144,9 @@ def dtype_from_database_typename(
         value.startswith(("INT", "UINT", "UNSIGNED"))
         or value.endswith(("INT", "SERIAL"))
         or ("INTEGER" in value)
-        or value in ("TINY", "SHORT", "LONG", "LONGLONG", "ROWID")
+        or value in {"TINY", "SHORT", "LONG", "LONGLONG", "ROWID"}
     ):
-        sz: Any
+        sz: Any = None
         if "HUGEINT" in value:
             sz = 128
         elif (
@@ -133,12 +159,12 @@ def dtype_from_database_typename(
             sz = 16
         elif "TINY" in value:
             sz = 8
-        elif n := re.sub(r"^\D+", "", value):
-            if (sz := int(n)) <= 8:
-                sz = sz * 8
         else:
-            sz = None
-
+            match = _LEADING_NON_DIGITS_PATTERN.sub("", value)
+            if match:
+                int_n = int(match)
+                if int_n <= 8:
+                    sz = int_n * 8
         sz = modifier if (not sz and modifier) else sz
         if not isinstance(sz, int):
             sz = int(sz) if isinstance(sz, str) and sz.isdigit() else None
@@ -172,7 +198,7 @@ def dtype_from_database_typename(
         dtype = String
 
     # binary dtypes
-    elif value in ("BYTEA", "BYTES", "BLOB", "CLOB", "BINARY"):
+    elif value in {"BYTEA", "BYTES", "BLOB", "CLOB", "BINARY"}:
         dtype = Binary
 
     # boolean dtypes
@@ -185,18 +211,20 @@ def dtype_from_database_typename(
 
     # temporal dtypes
     elif value.startswith(("DATETIME", "TIMESTAMP")) and not (value.endswith("[D]")):
-        if any((tz in value.replace(" ", "")) for tz in ("TZ", "TIMEZONE")):
-            if "WITHOUT" not in value:
+        val_cleaned = value.replace(" ", "")
+        if "TZ" in val_cleaned or "TIMEZONE" in val_cleaned:
+            if "WITHOUT" not in val_cleaned:
                 return None  # there's a timezone, but we don't know what it is
         unit = timeunit_from_precision(modifier) if modifier else "us"
         dtype = Datetime(time_unit=(unit or "us"))  # type: ignore[arg-type]
     else:
-        value = re.sub(r"\d", "", value)
-        if value in ("INTERVAL", "TIMEDELTA", "DURATION"):
+        # Only do regex substitution here if fallback is reached
+        value_no_digits = _CLEAN_VALUE_PATTERN.sub("", value)
+        if value_no_digits in {"INTERVAL", "TIMEDELTA", "DURATION"}:
             dtype = Duration
-        elif value == "DATE":
+        elif value_no_digits == "DATE":
             dtype = Date
-        elif value == "TIME":
+        elif value_no_digits == "TIME":
             dtype = Time
 
     if not dtype and raise_unmatched:

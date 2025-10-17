@@ -80,6 +80,7 @@ def try_parse_into_dtype(input: Any) -> PolarsDataType | None:
 @functools.lru_cache(16)
 def parse_py_type_into_dtype(input: PythonDataType | type[object]) -> PolarsDataType:
     """Convert Python data type to Polars data type."""
+    # Fast-path for exact built-in types.
     if input is int:
         return Int64()
     elif input is float:
@@ -88,10 +89,6 @@ def parse_py_type_into_dtype(input: PythonDataType | type[object]) -> PolarsData
         return String()
     elif input is bool:
         return Boolean()
-    elif isinstance(input, type) and issubclass(input, datetime):  # type: ignore[redundant-expr]
-        return Datetime("us")
-    elif isinstance(input, type) and issubclass(input, date):  # type: ignore[redundant-expr]
-        return Date()
     elif input is timedelta:
         return Duration
     elif input is time:
@@ -106,11 +103,16 @@ def parse_py_type_into_dtype(input: PythonDataType | type[object]) -> PolarsData
         return Null()
     elif input is list or input is tuple:
         return List
-    elif isclass(input) and issubclass(input, enum.Enum):
-        return Enum(input)
-    # this is required as pass through. Don't remove
     elif input == Unknown:
         return Unknown
+    # Use issubclass only if input is a class
+    elif isclass(input):
+        if issubclass(input, datetime):
+            return Datetime("us")
+        elif issubclass(input, date):
+            return Date()
+        elif issubclass(input, enum.Enum):
+            return Enum(input)
     elif hasattr(input, "__origin__") and hasattr(input, "__args__"):
         return _parse_generic_into_dtype(input)
     else:
