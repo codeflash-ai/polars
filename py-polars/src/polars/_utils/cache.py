@@ -48,6 +48,7 @@ class LRUCache(MutableMapping[K, V]):
         'not found'
         """
         self._items: OrderedDict[K, V] = OrderedDict()
+        self._len: int = 0
         self.maxsize = maxsize
 
     def __bool__(self) -> bool:
@@ -81,7 +82,7 @@ class LRUCache(MutableMapping[K, V]):
 
     def __len__(self) -> int:
         """Number of items in the cache."""
-        return len(self._items)
+        return self._len
 
     def __setitem__(self, key: K, value: V) -> None:
         """Insert a value into the cache."""
