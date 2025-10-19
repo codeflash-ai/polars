@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
     from polars._typing import TimeUnit
 
+_TIMEDELTA_CACHE = [timedelta(days=i) for i in range(1024)]
+
 
 @overload
 def parse_as_duration_string(td: None) -> None: ...
@@ -125,6 +127,8 @@ def timedelta_to_int(td: timedelta, time_unit: TimeUnit) -> int:
 @lru_cache(256)
 def to_py_date(value: int | float) -> date:
     """Convert an integer or float to a Python date object."""
+    if isinstance(value, int) and 0 <= value < 1024:
+        return EPOCH_DATE + _TIMEDELTA_CACHE[value]
     return EPOCH_DATE + timedelta(days=value)
 
 
