@@ -166,13 +166,7 @@ def to_py_datetime(
 
 def _localize_datetime(dt: datetime, time_zone: str) -> datetime:
     # zone info installation should already be checked
-    tz: ZoneInfo | tzinfo
-    try:
-        tz = ZoneInfo(time_zone)
-    except ZoneInfoNotFoundError:
-        # try fixed offset, which is not supported by ZoneInfo
-        tz = _parse_fixed_tz_offset(time_zone)
-
+    tz: ZoneInfo | tzinfo = _get_zoneinfo_cached(time_zone)
     return dt.astimezone(tz)
 
 
@@ -222,3 +216,12 @@ def _create_decimal_with_prec(
 def _raise_invalid_time_unit(time_unit: Any) -> NoReturn:
     msg = f"`time_unit` must be one of {{'ms', 'us', 'ns'}}, got {time_unit!r}"
     raise ValueError(msg)
+
+
+# Pre-cache ZoneInfo instantiations to avoid redundant disk I/O and parsing
+@lru_cache(32)
+def _get_zoneinfo_cached(time_zone: str) -> ZoneInfo | tzinfo:
+    try:
+        return ZoneInfo(time_zone)
+    except ZoneInfoNotFoundError:
+        return _parse_fixed_tz_offset(time_zone)
