@@ -397,7 +397,14 @@ class DataFrame:
                 data, schema=schema, schema_overrides=schema_overrides, strict=strict
             )
 
-        elif _check_for_numpy(data) and isinstance(data, np.ndarray):
+        elif is_pycapsule(data):
+            self._df = pycapsule_to_frame(
+                data,
+                schema=schema,
+                schema_overrides=schema_overrides,
+            )._df
+
+        elif isinstance(data, np.ndarray) and _check_for_numpy(data):
             self._df = numpy_to_pydf(
                 data,
                 schema=schema,
@@ -407,17 +414,17 @@ class DataFrame:
                 nan_to_null=nan_to_null,
             )
 
-        elif _check_for_pyarrow(data) and isinstance(data, pa.Table):
+        elif isinstance(data, pa.Table) and _check_for_pyarrow(data):
             self._df = arrow_to_pydf(
                 data, schema=schema, schema_overrides=schema_overrides, strict=strict
             )
 
-        elif _check_for_pandas(data) and isinstance(data, pd.DataFrame):
+        elif isinstance(data, pd.DataFrame) and _check_for_pandas(data):
             self._df = pandas_to_pydf(
                 data, schema=schema, schema_overrides=schema_overrides, strict=strict
             )
 
-        elif _check_for_torch(data) and isinstance(data, torch.Tensor):
+        elif isinstance(data, torch.Tensor) and _check_for_torch(data):
             self._df = numpy_to_pydf(
                 data.numpy(force=False),
                 schema=schema,
@@ -446,12 +453,6 @@ class DataFrame:
                 data, schema=schema, schema_overrides=schema_overrides, strict=strict
             )
 
-        elif is_pycapsule(data):
-            self._df = pycapsule_to_frame(
-                data,
-                schema=schema,
-                schema_overrides=schema_overrides,
-            )._df
         else:
             msg = (
                 f"DataFrame constructor called with unsupported type {type(data).__name__!r}"

@@ -78,13 +78,14 @@ class _XLFormatCache:
 
 def _adjacent_cols(df: DataFrame, cols: Iterable[str], min_max: dict[str, Any]) -> bool:
     """Indicate if the given columns are all adjacent to one another."""
-    idxs = sorted(df.get_column_index(col) for col in cols)
-    if idxs != sorted(range(min(idxs), max(idxs) + 1)):
+    idxs = [df.get_column_index(col) for col in cols]
+    uniq_idxs = set(idxs)
+    if len(uniq_idxs) != len(idxs) or max(idxs) - min(idxs) + 1 != len(idxs):
         return False
     else:
         columns = df.columns
-        min_max["min"] = {"idx": idxs[0], "name": columns[idxs[0]]}
-        min_max["max"] = {"idx": idxs[-1], "name": columns[idxs[-1]]}
+        min_max["min"] = {"idx": min(idxs), "name": columns[min(idxs)]}
+        min_max["max"] = {"idx": max(idxs), "name": columns[max(idxs)]}
         return True
 
 
