@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from io import BytesIO
 from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any
 
 from polars import functions as F
 from polars._dependencies import json
@@ -78,13 +78,29 @@ class _XLFormatCache:
 
 def _adjacent_cols(df: DataFrame, cols: Iterable[str], min_max: dict[str, Any]) -> bool:
     """Indicate if the given columns are all adjacent to one another."""
-    idxs = sorted(df.get_column_index(col) for col in cols)
-    if idxs != sorted(range(min(idxs), max(idxs) + 1)):
+    # Convert cols to list for potential repeated traversal
+    col_list = list(cols)
+    # Fast path: resolve indices and min/max in single pass
+    columns = df.columns
+    name_to_idx = {name: idx for idx, name in enumerate(columns)}
+    try:
+        idxs = [name_to_idx[col] for col in col_list]
+    except KeyError:
+        # fallback in case get_column_index supports more advanced lookups
+        idxs = [df.get_column_index(col) for col in col_list]
+
+    # Sorting here is relatively cheap, we reuse it
+    idxs_sorted = sorted(idxs)
+    min_idx = idxs_sorted[0]
+    max_idx = idxs_sorted[-1]
+    # Check contiguity using direct math instead of generating a range/list
+    if max_idx - min_idx + 1 != len(idxs_sorted) or any(
+        a != b for a, b in zip(idxs_sorted, range(min_idx, max_idx + 1))
+    ):
         return False
     else:
-        columns = df.columns
-        min_max["min"] = {"idx": idxs[0], "name": columns[idxs[0]]}
-        min_max["max"] = {"idx": idxs[-1], "name": columns[idxs[-1]]}
+        min_max["min"] = {"idx": min_idx, "name": columns[min_idx]}
+        min_max["max"] = {"idx": max_idx, "name": columns[max_idx]}
         return True
 
 
@@ -158,7 +174,6 @@ def _xl_apply_conditional_formats(
             ws.conditional_format(col_range, fmt)
 
 
-@overload
 def _xl_column_range(
     df: DataFrame,
     table_start: tuple[int, int],
@@ -166,10 +181,30 @@ def _xl_column_range(
     *,
     include_header: bool,
     as_range: Literal[True] = ...,
-) -> str: ...
+) -> str:
+    """Return the Excel sheet range of a named column, accounting for all offsets."""
+    t_row, t_col = table_start
+
+    if isinstance(col, str):
+        col_idx = df.get_column_index(col)
+        c0 = t_col + col_idx
+        c1 = c0
+    else:
+        col_idx0, col_idx1 = col
+        c0 = t_col + col_idx0
+        c1 = t_col + col_idx1
+
+    r0 = t_row + int(include_header)
+    r1 = r0 + df.height - 1
+
+    if as_range:
+        # Avoid string join overhead for single element
+        # _xl_rowcols_to_range returns a list[str], so use first string
+        return _xl_rowcols_to_range(r0, c0, r1, c1)[0]
+    else:
+        return (r0, c0, r1, c1)
 
 
-@overload
 def _xl_column_range(
     df: DataFrame,
     table_start: tuple[int, int],
@@ -177,7 +212,28 @@ def _xl_column_range(
     *,
     include_header: bool,
     as_range: Literal[False],
-) -> tuple[int, int, int, int]: ...
+) -> tuple[int, int, int, int]:
+    """Return the Excel sheet range of a named column, accounting for all offsets."""
+    t_row, t_col = table_start
+
+    if isinstance(col, str):
+        col_idx = df.get_column_index(col)
+        c0 = t_col + col_idx
+        c1 = c0
+    else:
+        col_idx0, col_idx1 = col
+        c0 = t_col + col_idx0
+        c1 = t_col + col_idx1
+
+    r0 = t_row + int(include_header)
+    r1 = r0 + df.height - 1
+
+    if as_range:
+        # Avoid string join overhead for single element
+        # _xl_rowcols_to_range returns a list[str], so use first string
+        return _xl_rowcols_to_range(r0, c0, r1, c1)[0]
+    else:
+        return (r0, c0, r1, c1)
 
 
 def _xl_column_range(
@@ -189,18 +245,26 @@ def _xl_column_range(
     as_range: bool = True,
 ) -> tuple[int, int, int, int] | str:
     """Return the Excel sheet range of a named column, accounting for all offsets."""
-    col_start = (
-        table_start[0] + int(include_header),
-        table_start[1] + (df.get_column_index(col) if isinstance(col, str) else col[0]),
-    )
-    col_finish = (
-        col_start[0] + df.height - 1,
-        col_start[1] + (0 if isinstance(col, str) else (col[1] - col[0])),
-    )
-    if as_range:
-        return "".join(_xl_rowcols_to_range(*col_start, *col_finish))
+    t_row, t_col = table_start
+
+    if isinstance(col, str):
+        col_idx = df.get_column_index(col)
+        c0 = t_col + col_idx
+        c1 = c0
     else:
-        return col_start + col_finish
+        col_idx0, col_idx1 = col
+        c0 = t_col + col_idx0
+        c1 = t_col + col_idx1
+
+    r0 = t_row + int(include_header)
+    r1 = r0 + df.height - 1
+
+    if as_range:
+        # Avoid string join overhead for single element
+        # _xl_rowcols_to_range returns a list[str], so use first string
+        return _xl_rowcols_to_range(r0, c0, r1, c1)[0]
+    else:
+        return (r0, c0, r1, c1)
 
 
 def _xl_column_multi_range(
@@ -212,16 +276,19 @@ def _xl_column_multi_range(
 ) -> str:
     """Return column ranges as an xlsxwriter 'multi_range' string, or spanning range."""
     m: dict[str, Any] = {}
-    if _adjacent_cols(df, cols, min_max=m):
+    # Convert cols to list so it's traversed only once
+    col_list = list(cols)
+    if _adjacent_cols(df, col_list, min_max=m):
         return _xl_column_range(
             df,
             table_start,
             (m["min"]["idx"], m["max"]["idx"]),
             include_header=include_header,
         )
+    # List comprehension for performance
     return " ".join(
         _xl_column_range(df, table_start, col, include_header=include_header)
-        for col in cols
+        for col in col_list
     )
 
 
