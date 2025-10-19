@@ -634,11 +634,16 @@ def _xl_table_formula(df: DataFrame, cols: Iterable[str], func: str) -> str:
 def _xl_unique_table_name(wb: Workbook) -> str:
     """Establish a unique (per-workbook) table object name."""
     table_prefix = "Frame"
+    # Accumulate all matching table names across all sheets efficiently
     polars_tables: set[str] = set()
+    add = polars_tables.add  # local var for faster loop
+    # Flatten the loop and avoid generating unnecessary intermediate lists/generators
     for ws in wb.worksheets():
-        polars_tables.update(
-            tbl["name"] for tbl in ws.tables if tbl["name"].startswith(table_prefix)
-        )
+        # ws.tables is likely a list of dicts, optimize to single for with in-place check
+        for tbl in ws.tables:
+            name = tbl["name"]
+            if name.startswith(table_prefix):
+                add(name)
     n = len(polars_tables)
     table_name = f"{table_prefix}{n}"
     while table_name in polars_tables:
