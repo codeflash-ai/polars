@@ -59,16 +59,21 @@ class _XLFormatCache:
     def __init__(self, wb: Workbook) -> None:
         self._cache: dict[str, Format] = {}
         self.wb = wb
+        self._key_cache: dict[int, str] = {}
 
     @staticmethod
     def _key(fmt: dict[str, Any]) -> str:
-        return json.dumps(fmt, sort_keys=True, default=str)
+        return json.dumps(fmt, sort_keys=True, default=str, separators=(",", ":"))
 
     def get(self, fmt: dict[str, Any] | Format) -> Format:
         if not isinstance(fmt, dict):
             wbfmt = fmt
         else:
-            key = self._key(fmt)
+            id_fmt = id(fmt)
+            key = self._key_cache.get(id_fmt)
+            if key is None:
+                key = self._key(fmt)
+                self._key_cache[id_fmt] = key
             wbfmt = self._cache.get(key)
             if wbfmt is None:
                 wbfmt = self.wb.add_format(fmt)
