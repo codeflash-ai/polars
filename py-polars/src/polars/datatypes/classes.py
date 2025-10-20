@@ -1182,10 +1182,15 @@ class Struct(NestedType):
     fields: list[Field]
 
     def __init__(self, fields: Sequence[Field] | SchemaDict) -> None:
-        if isinstance(fields, Mapping):
+        if type(fields) is dict:
+            self.fields = [Field(k, v) for k, v in fields.items()]
+        elif isinstance(fields, Mapping):
             self.fields = [Field(name, dtype) for name, dtype in fields.items()]
         else:
-            self.fields = list(fields)
+            if type(fields) is list:
+                self.fields = fields  # type: ignore[assignment]
+            else:
+                self.fields = list(fields)
 
     def __eq__(self, other: PolarsDataType) -> bool:  # type: ignore[override]
         # The comparison allows comparing objects to classes, and specific
@@ -1216,4 +1221,7 @@ class Struct(NestedType):
 
     def to_schema(self) -> OrderedDict[str, PolarsDataType]:
         """Return Struct dtype as a schema dict."""
-        return OrderedDict(self)
+        result = OrderedDict()
+        for field in self.fields:
+            result[field.name] = field.dtype
+        return result
