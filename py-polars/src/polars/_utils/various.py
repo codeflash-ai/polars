@@ -42,6 +42,8 @@ from polars.datatypes import (
 )
 from polars.datatypes.group import FLOAT_DTYPES, INTEGER_DTYPES
 
+_non_digit_re = re.compile(r"\D")
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping, Reversible
 
@@ -247,7 +249,9 @@ def parse_version(version: Sequence[str | int]) -> tuple[int, ...]:
     """Simple version parser; split into a tuple of ints for comparison."""
     if isinstance(version, str):
         version = version.split(".")
-    return tuple(int(re.sub(r"\D", "", str(v))) for v in version)
+    # Avoid repeated re-compilation and method lookups for better performance
+    _sub = _non_digit_re.sub
+    return tuple(int(_sub("", str(v))) for v in version)
 
 
 def ordered_unique(values: Sequence[Any]) -> list[Any]:
