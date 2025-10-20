@@ -611,16 +611,21 @@ def in_terminal_that_supports_colour() -> bool:
     """
     if hasattr(sys.stdout, "isatty"):
         # can enhance as necessary, but this is a reasonable start
+        if not sys.stdout.isatty():
+            return False
+
+        if os.environ.get("PYCHARM_HOSTED") == "1":
+            return True
+
+        if sys.platform != "win32":
+            return True
+
         return (
-            sys.stdout.isatty()
-            and (
-                sys.platform != "win32"
-                or "ANSICON" in os.environ
-                or "WT_SESSION" in os.environ
-                or os.environ.get("TERM_PROGRAM") == "vscode"
-                or os.environ.get("TERM") == "xterm-256color"
-            )
-        ) or os.environ.get("PYCHARM_HOSTED") == "1"
+            "ANSICON" in os.environ
+            or "WT_SESSION" in os.environ
+            or os.environ.get("TERM_PROGRAM") == "vscode"
+            or os.environ.get("TERM") == "xterm-256color"
+        )
     return False
 
 
