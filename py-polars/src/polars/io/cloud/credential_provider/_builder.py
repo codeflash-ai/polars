@@ -5,7 +5,11 @@ import os
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Literal, Union
 
+from line_profiler import profile as codeflash_line_profile
+
 import polars._utils.logging
+
+codeflash_line_profile.enable(output_prefix="/tmp/codeflash_6n143lwm/baseline_lprof")
 from polars._utils.cache import LRUCache
 from polars._utils.logging import eprint, verbose
 from polars._utils.unstable import issue_unstable_warning
@@ -82,6 +86,7 @@ class CredentialProviderBuilder:
         self.credential_provider_init = credential_provider_init
 
     # Note: The rust-side expects this exact function name.
+    @codeflash_line_profile
     def build_credential_provider(
         self,
         clear_cached_credentials: bool = False,  # noqa: FBT001
