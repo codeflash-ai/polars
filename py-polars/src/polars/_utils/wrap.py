@@ -22,4 +22,4 @@ def wrap_s(s: PySeries) -> Series:
 
 
 def wrap_expr(pyexpr: PyExpr) -> Expr:
-    return pl.Expr._from_pyexpr(pyexpr)
+    return Expr._from_pyexpr(pyexpr)
