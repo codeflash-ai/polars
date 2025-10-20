@@ -788,7 +788,7 @@ def _get_sheet_names(
         sheet_names.append(name)
         return_multiple_sheets = False
     elif sheet_id == 0:
-        sheet_names.extend(ws["name"] for ws in worksheets)
+        sheet_names = [ws["name"] for ws in worksheets]
         return_multiple_sheets = True
     else:
         return_multiple_sheets = (
@@ -800,18 +800,16 @@ def _get_sheet_names(
             (sheet_name,) if isinstance(sheet_name, str) else sheet_name or ()
         ):
             known_sheet_names = {ws["name"] for ws in worksheets}
-            for name in names:
-                if name not in known_sheet_names:
-                    msg = f"no matching sheet found when `sheet_name` is {name!r}"
-                    raise ValueError(msg)
-                sheet_names.append(name)
+            missing_names = [name for name in names if name not in known_sheet_names]
+            if missing_names:
+                msg = (
+                    f"no matching sheet found when `sheet_name` is {missing_names[0]!r}"
+                )
+                raise ValueError(msg)
+            sheet_names.extend(names)
         else:
             ids = (sheet_id,) if isinstance(sheet_id, int) else sheet_id or ()
-            sheet_names_by_idx = {
-                idx: ws["name"]
-                for idx, ws in enumerate(worksheets, start=1)
-                if (sheet_id == 0 or ws["index"] in ids or ws["name"] in names)
-            }
+            sheet_names_by_idx = {ws["index"]: ws["name"] for ws in worksheets}
             for idx in ids:
                 if (name := sheet_names_by_idx.get(idx)) is None:
                     msg = f"no matching sheet found when `sheet_id` is {idx}"
