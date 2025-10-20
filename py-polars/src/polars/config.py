@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
+from typing_extensions import Unpack
+
 from polars._dependencies import json
 from polars._typing import EngineType
 from polars._utils.deprecation import deprecated
@@ -269,7 +271,18 @@ class Config(contextlib.ContextDecorator):
             self._context_options = options
         else:
             # apply the given options immediately
-            self._set_config_params(**options)
+            # Optimization: inline loop rather than call a generic method for single-use code path
+            for opt, value in options.items():
+                # Avoid repeated hasattr/getattr calls
+                opt_name = (
+                    opt
+                    if hasattr(self, opt) or opt.startswith("set_")
+                    else f"set_{opt}"
+                )
+                if not hasattr(self, opt_name):
+                    msg = f"`Config` has no option {opt_name!r}"
+                    raise AttributeError(msg)
+                getattr(self, opt_name)(value)
             self._context_options = None
 
     def __enter__(self) -> Self:
@@ -1193,10 +1206,15 @@ class Config(contextlib.ContextDecorator):
         # │ 5.0 ┆ true  │
         # └─────┴───────┘
         """
+        env_key = "POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES"
         if active is None:
-            os.environ.pop("POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES", None)
+            # Optimization: Use try/except block for removal, avoiding two hash lookups as in pop
+            try:
+                del os.environ[env_key]
+            except KeyError:
+                pass
         else:
-            os.environ["POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES"] = str(int(active))
+            os.environ[env_key] = str(int(active))
         return cls
 
     @classmethod
