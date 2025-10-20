@@ -57,6 +57,8 @@ else:
     NoneType = type(None)
     UnionType = type(Union[int, float])
 
+_DTYPE_PATTERN = re.compile(r"^(\w+)(?:\[(.+)\])?$")
+
 if TYPE_CHECKING:
     from polars._typing import PolarsDataType, PythonDataType, TimeUnit
 
@@ -292,7 +294,7 @@ def dtype_short_repr_to_dtype(dtype_string: str | None) -> PolarsDataType | None
     if dtype_string is None:
         return None
 
-    m = re.match(r"^(\w+)(?:\[(.+)\])?$", dtype_string)
+    m = _DTYPE_PATTERN.match(dtype_string)
     if m is None:
         return None
 
@@ -304,9 +306,12 @@ def dtype_short_repr_to_dtype(dtype_string: str | None) -> PolarsDataType | None
             if dtype == Decimal:
                 subtype = (None, int(subtype))
             else:
-                subtype = (
-                    s.strip("'\" ") for s in subtype.replace("μs", "us").split(",")
-                )
+                stripped_subtype = []
+                for s in subtype.split(","):
+                    # replace("μs","us") before strip for each entry
+                    s_stripped = s.replace("μs", "us").strip("'\" ")
+                    stripped_subtype.append(s_stripped)
+                subtype = stripped_subtype
             return dtype(*subtype)  # type: ignore[operator]
         except ValueError:
             pass
