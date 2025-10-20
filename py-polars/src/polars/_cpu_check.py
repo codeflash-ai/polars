@@ -206,42 +206,67 @@ class CPUID:
 def _read_cpu_flags() -> dict[str, bool]:
     # CPU flags from https://en.wikipedia.org/wiki/CPUID
     cpuid = CPUID()
-    cpuid1 = cpuid(1, 0)
-    cpuid7 = cpuid(7, 0)
-    cpuid81h = cpuid(0x80000001, 0)
+    cpuid_result = (
+        cpuid(1, 0),
+        cpuid(7, 0),
+        cpuid(0x80000001, 0),
+    )
+    cpuid1_ecx = cpuid_result[0].ecx
+    cpuid7_ebx = cpuid_result[1].ebx
+    cpuid81h_ecx = cpuid_result[2].ecx
+
+    # Store bit-shift results as static constants for efficiency
+    # Since these are all single bit shifts, this avoids recalculating inside dict creation
+    _CPUID1_ECX_SSE3      = 1 << 0
+    _CPUID1_ECX_SSSE3     = 1 << 9
+    _CPUID1_ECX_FMA       = 1 << 12
+    _CPUID1_ECX_CMPXCHG16B= 1 << 13
+    _CPUID1_ECX_SSE41     = 1 << 19
+    _CPUID1_ECX_SSE42     = 1 << 20
+    _CPUID1_ECX_MOVBE     = 1 << 22
+    _CPUID1_ECX_POPCNT    = 1 << 23
+    _CPUID1_ECX_PCLMULQDQ = 1 << 1
+    _CPUID1_ECX_AVX       = 1 << 28
+    _CPUID7_EBX_BMI1      = 1 << 3
+    _CPUID7_EBX_BMI2      = 1 << 8
+    _CPUID7_EBX_AVX2      = 1 << 5
+    _CPUID81H_ECX_LZCNT   = 1 << 5
 
     return {
-        "sse3": bool(cpuid1.ecx & (1 << 0)),
-        "ssse3": bool(cpuid1.ecx & (1 << 9)),
-        "fma": bool(cpuid1.ecx & (1 << 12)),
-        "cmpxchg16b": bool(cpuid1.ecx & (1 << 13)),
-        "sse4.1": bool(cpuid1.ecx & (1 << 19)),
-        "sse4.2": bool(cpuid1.ecx & (1 << 20)),
-        "movbe": bool(cpuid1.ecx & (1 << 22)),
-        "popcnt": bool(cpuid1.ecx & (1 << 23)),
-        "pclmulqdq": bool(cpuid1.ecx & (1 << 1)),
-        "avx": bool(cpuid1.ecx & (1 << 28)),
-        "bmi1": bool(cpuid7.ebx & (1 << 3)),
-        "bmi2": bool(cpuid7.ebx & (1 << 8)),
-        "avx2": bool(cpuid7.ebx & (1 << 5)),
-        "lzcnt": bool(cpuid81h.ecx & (1 << 5)),
+        "sse3":      bool(cpuid1_ecx & _CPUID1_ECX_SSE3),
+        "ssse3":     bool(cpuid1_ecx & _CPUID1_ECX_SSSE3),
+        "fma":       bool(cpuid1_ecx & _CPUID1_ECX_FMA),
+        "cmpxchg16b":bool(cpuid1_ecx & _CPUID1_ECX_CMPXCHG16B),
+        "sse4.1":    bool(cpuid1_ecx & _CPUID1_ECX_SSE41),
+        "sse4.2":    bool(cpuid1_ecx & _CPUID1_ECX_SSE42),
+        "movbe":     bool(cpuid1_ecx & _CPUID1_ECX_MOVBE),
+        "popcnt":    bool(cpuid1_ecx & _CPUID1_ECX_POPCNT),
+        "pclmulqdq": bool(cpuid1_ecx & _CPUID1_ECX_PCLMULQDQ),
+        "avx":       bool(cpuid1_ecx & _CPUID1_ECX_AVX),
+        "bmi1":      bool(cpuid7_ebx & _CPUID7_EBX_BMI1),
+        "bmi2":      bool(cpuid7_ebx & _CPUID7_EBX_BMI2),
+        "avx2":      bool(cpuid7_ebx & _CPUID7_EBX_AVX2),
+        "lzcnt":     bool(cpuid81h_ecx & _CPUID81H_ECX_LZCNT),
     }
 
 
 def check_cpu_flags(feature_flags: str) -> None:
+    # Fast exit if not required
     if not feature_flags or os.environ.get("POLARS_SKIP_CPU_CHECK"):
         return
 
-    expected_cpu_flags = [f.lstrip("+") for f in feature_flags.split(",")]
+    # Use tuple for expected_cpu_flags for faster iteration and less memory
+    expected_cpu_flags = tuple(f.lstrip("+") for f in feature_flags.split(","))
     supported_cpu_flags = _read_cpu_flags()
 
     missing_features = []
+    _supported = supported_cpu_flags
     for f in expected_cpu_flags:
-        if f not in supported_cpu_flags:
+        # Branch first: dict lookup before value access to minimize operations
+        if f not in _supported:
             msg = f"unknown feature flag: {f!r}"
             raise RuntimeError(msg)
-
-        if not supported_cpu_flags[f]:
+        if not _supported[f]:
             missing_features.append(f)
 
     if missing_features:
