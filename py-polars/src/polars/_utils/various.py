@@ -637,12 +637,20 @@ def parse_percentiles(
         percentiles = [percentiles]
     elif percentiles is None:
         percentiles = []
-    if not all((0 <= p <= 1) for p in percentiles):
-        msg = "`percentiles` must all be in the range [0, 1]"
-        raise ValueError(msg)
 
-    sub_50_percentiles = sorted(p for p in percentiles if p < 0.5)
-    at_or_above_50_percentiles = sorted(p for p in percentiles if p >= 0.5)
+    sub_50_percentiles = []
+    at_or_above_50_percentiles = []
+    for p in percentiles:
+        if not (0 <= p <= 1):
+            msg = "`percentiles` must all be in the range [0, 1]"
+            raise ValueError(msg)
+        if p < 0.5:
+            sub_50_percentiles.append(p)
+        else:
+            at_or_above_50_percentiles.append(p)
+
+    sub_50_percentiles.sort()
+    at_or_above_50_percentiles.sort()
 
     if inject_median and (
         not at_or_above_50_percentiles or at_or_above_50_percentiles[0] != 0.5
