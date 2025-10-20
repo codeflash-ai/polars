@@ -633,12 +633,13 @@ def _re_string(string: str | Collection[str], *, escape: bool = True) -> str:
     if isinstance(string, str):
         rx = re_escape(string) if escape else string
     else:
-        strings: builtins.list[str] = []
-        for st in string:
-            if isinstance(st, Collection) and not isinstance(st, str):  # type: ignore[redundant-expr]
-                strings.extend(st)
-            else:
-                strings.append(st)
+        strings: builtins.list[str] = [
+            item
+            for st in string
+            for item in (
+                st if isinstance(st, Collection) and not isinstance(st, str) else [st]
+            )
+        ]
         rx = "|".join((re_escape(x) if escape else x) for x in strings)
     return f"({rx})"
 
