@@ -121,8 +121,11 @@ def booleans() -> SearchStrategy[bool]:
 
 def strings() -> SearchStrategy[str]:
     """Create a strategy for generating string values."""
-    alphabet = st.characters(max_codepoint=1000, exclude_categories=["Cs", "Cc"])
-    return st.text(alphabet=alphabet, max_size=8)
+    if not hasattr(strings, "_alphabet"):
+        strings._alphabet = st.characters(
+            max_codepoint=1000, exclude_categories=["Cs", "Cc"]
+        )
+    return st.text(alphabet=strings._alphabet, max_size=8)
 
 
 def binary() -> SearchStrategy[bytes]:
