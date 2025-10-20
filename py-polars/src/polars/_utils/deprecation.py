@@ -56,9 +56,10 @@ def issue_deprecation_warning(message: str, *, version: str = "") -> None:
         The version in which deprecation occurred
         (if the version number was not already included in `message`).
     """
-    if version:
-        message = f"{message.strip()}\n(Deprecated in version {version})"
-    issue_warning(message, DeprecationWarning)
+    final_message = (
+        f"{message.strip()}\n(Deprecated in version {version})" if version else message
+    )
+    issue_warning(final_message, DeprecationWarning)
 
 
 def _deprecate_function(message: str) -> Callable[[Callable[P, T]], Callable[P, T]]:
