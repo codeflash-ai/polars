@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
+from typing_extensions import Unpack
+
 from polars._dependencies import json
 from polars._typing import EngineType
 from polars._utils.deprecation import deprecated
@@ -264,12 +266,15 @@ class Config(contextlib.ContextDecorator):
         if restore_defaults:
             self.restore_defaults()
 
+        # Avoid unnecessary attribute lookups by comparing once
         if apply_on_context_enter:
             # defer setting options; apply only on entering a new context
             self._context_options = options
-        else:
-            # apply the given options immediately
+        elif options:
+            # Only call _set_config_params if there's anything to do
             self._set_config_params(**options)
+            self._context_options = None
+        else:
             self._context_options = None
 
     def __enter__(self) -> Self:
@@ -1512,11 +1517,17 @@ class Config(contextlib.ContextDecorator):
         ValueError: if engine is not recognised.
         NotImplementedError: if engine is a GPUEngine object
         """
-        if isinstance(engine, GPUEngine):
+        # Fast path: direct type comparison
+        if type(engine) is GPUEngine:
             msg = "GPU engine with non-defaults not yet supported"
             raise NotImplementedError(msg)
-        supported_engines = get_args(get_args(EngineType)[0])
-        if engine not in {*supported_engines, None}:
+        # Static, don't re-call get_args for every method call
+        # We cache list conversion for performance
+        if not hasattr(cls, "_supported_engines"):
+            # Avoid redundant calls, compute and cache once
+            cls._supported_engines = set(get_args(get_args(EngineType)[0]))
+        supported_engines = cls._supported_engines
+        if engine not in supported_engines and engine is not None:
             msg = "invalid engine"
             raise ValueError(msg)
         if engine is None:
