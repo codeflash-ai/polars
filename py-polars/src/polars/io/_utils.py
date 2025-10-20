@@ -19,6 +19,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from contextlib import AbstractContextManager as ContextManager
 
+_URL_REGEX = re.compile(r"^(ht|f)tps?://", re.IGNORECASE)
+
 
 def parse_columns_arg(
     columns: Sequence[str] | Sequence[int] | str | int | None,
@@ -291,7 +293,7 @@ def _check_empty(
 
 
 def looks_like_url(path: str) -> bool:
-    return re.match("^(ht|f)tps?://", path, re.IGNORECASE) is not None
+    return _URL_REGEX.match(path) is not None
 
 
 def process_file_url(path: str, encoding: str | None = None) -> BytesIO:
