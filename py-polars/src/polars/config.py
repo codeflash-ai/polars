@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
+from typing_extensions import Unpack
+
 from polars._dependencies import json
 from polars._typing import EngineType
 from polars._utils.deprecation import deprecated
@@ -263,13 +265,14 @@ class Config(contextlib.ContextDecorator):
         self._original_state = self.save()
         if restore_defaults:
             self.restore_defaults()
-
         if apply_on_context_enter:
             # defer setting options; apply only on entering a new context
             self._context_options = options
         else:
             # apply the given options immediately
-            self._set_config_params(**options)
+            if options:
+                # Optimize: avoid function call if no options to set
+                self._set_config_params(**options)
             self._context_options = None
 
     def __enter__(self) -> Self:
@@ -1093,8 +1096,13 @@ class Config(contextlib.ContextDecorator):
         # └─────┴───────┘      shape: (3, 2)
         """
         if active is None:
-            os.environ.pop("POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW", None)
+            # Optimize: Use try/except instead of pop for slightly faster deletion
+            try:
+                del os.environ["POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW"]
+            except KeyError:
+                pass
         else:
+            # Avoid calling str(int(...)) when possible; but must remain for correct conversion
             os.environ["POLARS_FMT_TABLE_DATAFRAME_SHAPE_BELOW"] = str(int(active))
         return cls
 
