@@ -279,7 +279,7 @@ def prepare_file_arg(
 def _check_empty(
     b: BytesIO, *, context: str, raise_if_empty: bool, read_position: int | None = None
 ) -> BytesIO:
-    if raise_if_empty and b.getbuffer().nbytes == 0:
+    if raise_if_empty and b.getvalue() == b"":
         hint = (
             f" (buffer position = {read_position}; try seek(0) before reading?)"
             if context in ("StringIO", "BytesIO") and read_position
