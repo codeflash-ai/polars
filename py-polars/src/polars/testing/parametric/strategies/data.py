@@ -74,6 +74,16 @@ if TYPE_CHECKING:
     from polars._typing import PolarsDataType, SchemaDict, TimeUnit
     from polars.datatypes import DataType, DataTypeClass
 
+_MICROSECOND_RANGE = (
+    timedelta(microseconds=I64_MIN),
+    timedelta(microseconds=I64_MAX),
+)
+
+_NANOSECOND_RANGE = (
+    timedelta(microseconds=I64_MIN // 1000),
+    timedelta(microseconds=I64_MAX // 1000),
+)
+
 _DEFAULT_LIST_LEN_LIMIT = 3
 _DEFAULT_N_CATEGORIES = 10
 
@@ -205,23 +215,17 @@ def durations(time_unit: TimeUnit = "us") -> SearchStrategy[timedelta]:
         Time unit for which the timedelta objects are valid.
     """
     if time_unit == "us":
-        return st.timedeltas(
-            min_value=timedelta(microseconds=I64_MIN),
-            max_value=timedelta(microseconds=I64_MAX),
-        )
+        min_value, max_value = _MICROSECOND_RANGE
+        return st.timedeltas(min_value=min_value, max_value=max_value)
     elif time_unit == "ns":
-        return st.timedeltas(
-            min_value=timedelta(microseconds=I64_MIN // 1000),
-            max_value=timedelta(microseconds=I64_MAX // 1000),
-        )
+        min_value, max_value = _NANOSECOND_RANGE
+        return st.timedeltas(min_value=min_value, max_value=max_value)
     elif time_unit == "ms":
         # TODO: Enable full range of millisecond durations
         # timedelta.min/max fall within the range
         # return st.timedeltas()
-        return st.timedeltas(
-            min_value=timedelta(microseconds=I64_MIN),
-            max_value=timedelta(microseconds=I64_MAX),
-        )
+        min_value, max_value = _MICROSECOND_RANGE
+        return st.timedeltas(min_value=min_value, max_value=max_value)
     else:
         msg = f"invalid time unit: {time_unit!r}"
         raise InvalidArgument(msg)
