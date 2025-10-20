@@ -5,7 +5,11 @@ import os
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Literal, Union
 
+from line_profiler import profile as codeflash_line_profile
+
 import polars._utils.logging
+
+codeflash_line_profile.enable(output_prefix="/tmp/codeflash_6n143lwm/baseline_lprof")
 from polars._utils.cache import LRUCache
 from polars._utils.logging import eprint, verbose
 from polars._utils.unstable import issue_unstable_warning
@@ -20,6 +24,8 @@ from polars.io.cloud.credential_provider._providers import (
     CredentialProviderGCP,
     UserProvidedGCPToken,
 )
+
+_verbose_flag_cache = None
 
 if TYPE_CHECKING:
     import sys
@@ -82,6 +88,7 @@ class CredentialProviderBuilder:
         self.credential_provider_init = credential_provider_init
 
     # Note: The rust-side expects this exact function name.
+    @codeflash_line_profile
     def build_credential_provider(
         self,
         clear_cached_credentials: bool = False,  # noqa: FBT001
@@ -209,48 +216,51 @@ def _build_with_cache(
 ) -> CredentialProviderBuilderReturn:
     global BUILT_PROVIDERS_LRU_CACHE
 
-    if (
-        max_items := int(
-            os.getenv(
-                "POLARS_CREDENTIAL_PROVIDER_BUILDER_CACHE_SIZE",
-                8,
-            )
+    # Avoid costly environment variable lookup by caching the value
+    if not hasattr(_build_with_cache, "_max_items"):
+        _build_with_cache._max_items = int(
+            os.getenv("POLARS_CREDENTIAL_PROVIDER_BUILDER_CACHE_SIZE", 8)
         )
-    ) <= 0:
-        if BUILT_PROVIDERS_LRU_CACHE_LOCK.acquire(blocking=False):
-            BUILT_PROVIDERS_LRU_CACHE = None
-            BUILT_PROVIDERS_LRU_CACHE_LOCK.release()
+    max_items = _build_with_cache._max_items
 
+    if max_items <= 0:
+        # Prefer RLock's context manager for reliability and performance
+        acquired = BUILT_PROVIDERS_LRU_CACHE_LOCK.acquire(blocking=False)
+        try:
+            if acquired:
+                BUILT_PROVIDERS_LRU_CACHE = None
+        finally:
+            if acquired:
+                BUILT_PROVIDERS_LRU_CACHE_LOCK.release()
         return build_provider_func()
 
-    verbose = polars._utils.logging.verbose()
+    verbose = _get_verbose()
 
+    # Reduce scope of locking (only for init/check/set/read)
     with BUILT_PROVIDERS_LRU_CACHE_LOCK:
-        if BUILT_PROVIDERS_LRU_CACHE is None:
-            if verbose:
-                eprint(f"Create built credential providers LRU cache ({max_items = })")
-
-            BUILT_PROVIDERS_LRU_CACHE = LRUCache(max_items)
-
-        cache_key = get_cache_key_func()
-
-        try:
-            provider = BUILT_PROVIDERS_LRU_CACHE[cache_key]
-
+        cache = BUILT_PROVIDERS_LRU_CACHE
+        if cache is None:
             if verbose:
                 eprint(
-                    f"Loaded credential provider from cache: {provider!r} {cache_key = }"
+                    f"Create built credential providers LRU cache (max_items = {max_items})"
                 )
+            cache = BUILT_PROVIDERS_LRU_CACHE = LRUCache(max_items)
+        cache_key = get_cache_key_func()
+        try:
+            provider = cache[cache_key]
+            if verbose:
+                eprint(
+                    f"Loaded credential provider from cache: {provider!r} cache_key = {cache_key!r}"
+                )
+            return provider
         except KeyError:
             provider = build_provider_func()
-            BUILT_PROVIDERS_LRU_CACHE[cache_key] = provider
-
+            cache[cache_key] = provider
             if verbose:
                 eprint(
-                    f"Added new credential provider to cache: {provider!r} {cache_key = }"
+                    f"Added new credential provider to cache: {provider!r} cache_key = {cache_key!r}"
                 )
-
-        return provider
+            return provider
 
 
 # Represents an automatic initialization configuration. This is created for
@@ -518,3 +528,15 @@ def _init_credential_provider_builder(
         eprint(f"_init_credential_provider_builder(): {credential_provider_init = !r}")
 
     return credential_provider_init
+
+
+def _get_verbose() -> bool:
+    global _verbose_flag_cache
+    if _verbose_flag_cache is None:
+        # Use _verbose_cache directly if set, else fallback to verbose()
+        vc = getattr(polars._utils.logging, "_verbose_cache", None)
+        if vc is not None:
+            _verbose_flag_cache = vc
+        else:
+            _verbose_flag_cache = polars._utils.logging.verbose()
+    return _verbose_flag_cache
