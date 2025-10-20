@@ -26,6 +26,8 @@ from typing import (
     overload,
 )
 
+from typing_extensions import TypeGuard
+
 import polars as pl
 from polars import functions as F
 from polars._dependencies import _check_for_numpy, import_optional, subprocess
@@ -86,7 +88,10 @@ def _is_generator(val: object | Iterator[T]) -> TypeIs[Iterator[T]]:
 
 def _is_iterable_of(val: Iterable[object], eltype: type | tuple[type, ...]) -> bool:
     """Check whether the given iterable is of the given type(s)."""
-    return all(isinstance(x, eltype) for x in val)
+    for x in val:
+        if not isinstance(x, eltype):
+            return False
+    return True
 
 
 def is_path_or_str_sequence(
