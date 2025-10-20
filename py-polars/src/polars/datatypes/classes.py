@@ -631,7 +631,7 @@ class Duration(TemporalType):
     time_unit: TimeUnit
 
     def __init__(self, time_unit: TimeUnit = "us") -> None:
-        if time_unit not in ("ms", "us", "ns"):
+        if time_unit not in {"ms", "us", "ns"}:
             msg = (
                 "invalid `time_unit`"
                 f"\n\nExpected one of {{'ns','us','ms'}}, got {time_unit!r}."
@@ -642,8 +642,8 @@ class Duration(TemporalType):
 
     def __eq__(self, other: PolarsDataType) -> bool:  # type: ignore[override]
         # allow comparing object instances to class
-        if type(other) is DataTypeClass and issubclass(other, Duration):
-            return True
+        if type(other) is DataTypeClass:
+            return other is Duration or issubclass(other, Duration)
         elif isinstance(other, Duration):
             return self.time_unit == other.time_unit
         else:
