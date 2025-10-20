@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict, get_args
 
+from typing_extensions import Unpack
+
 from polars._dependencies import json
 from polars._typing import EngineType
 from polars._utils.deprecation import deprecated
@@ -1154,21 +1156,28 @@ class Config(contextlib.ContextDecorator):
         ------
         ValueError: if format string not recognised.
         """
-        # note: can see what the different styles look like in the comfy-table tests
-        # https://github.com/Nukesor/comfy-table/blob/main/tests/all/presets_test.rs
+        # Optimization: cache valid_format_names on first usage for faster repeated lookup
+        if not hasattr(cls, "_valid_format_names"):
+            cls._valid_format_names = set(get_args(TableFormatNames))
+
         if format is None:
             os.environ.pop("POLARS_FMT_TABLE_FORMATTING", None)
         else:
-            valid_format_names = get_args(TableFormatNames)
-            if format not in valid_format_names:
-                msg = f"invalid table format name: {format!r}\nExpected one of: {', '.join(valid_format_names)}"
+            if format not in cls._valid_format_names:
+                msg = (
+                    f"invalid table format name: {format!r}\nExpected one of: "
+                    f"{', '.join(cls._valid_format_names)}"
+                )
                 raise ValueError(msg)
             os.environ["POLARS_FMT_TABLE_FORMATTING"] = format
 
         if rounded_corners is None:
             os.environ.pop("POLARS_FMT_TABLE_ROUNDED_CORNERS", None)
         else:
-            os.environ["POLARS_FMT_TABLE_ROUNDED_CORNERS"] = str(int(rounded_corners))
+            # Avoid str(int(...)) allocation for repeated values
+            os.environ["POLARS_FMT_TABLE_ROUNDED_CORNERS"] = (
+                "1" if rounded_corners else "0"
+            )
 
         return cls
 
