@@ -12,7 +12,7 @@ from bisect import bisect_left
 from collections import defaultdict
 from dis import get_instructions
 from inspect import signature
-from itertools import count, zip_longest
+from itertools import zip_longest
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -26,6 +26,10 @@ from typing import (
 
 from polars._utils.cache import LRUCache
 from polars._utils.various import no_default, re_escape
+
+_NAME_PATTERNS = {name: re.compile(rf"\b{name}\b") for name in ("s", "srs", "series")}
+
+_SRS_PATTERN = re.compile(r"\bsrs(\d+)\b")
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, MutableMapping
@@ -340,13 +344,15 @@ def _get_target_name(col: str, expression: str, map_target: str) -> str:
         # through "s", "srs", "series" and (finally) srs0 -> srsN...
         search_expr = expression.replace(col_expr, "")
         for name in ("s", "srs", "series"):
-            if not re.search(rf"\b{name}\b", search_expr):
+            if not _NAME_PATTERNS[name].search(search_expr):
                 return name
-        n = count()
-        while True:
-            name = f"srs{next(n)}"
-            if not re.search(rf"\b{name}\b", search_expr):
-                return name
+
+        # Find the first available srs{n} name
+        used = set(int(m.group(1)) for m in _SRS_PATTERN.finditer(search_expr))
+        n = 0
+        while n in used:
+            n += 1
+        return f"srs{n}"
 
     msg = f"TODO: map_target = {map_target!r}"
     raise NotImplementedError(msg)
