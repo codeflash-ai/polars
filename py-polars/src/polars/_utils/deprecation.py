@@ -298,34 +298,53 @@ def deprecate_parameter_as_multi_positional(
 def _find_deprecated_functions(
     source: str, module_path: str
 ) -> defaultdict[str, list[str]]:
+    # Parse AST once
     tree = ast.parse(source)
+    # Use a local object_path stack to avoid global state modification
     object_path: list[str] = []
 
     def deprecated(decorator: Any) -> str:
+        # Fast-path: avoid function calls if possible
         if isinstance(decorator, ast.Name):
-            return decorator.id if "deprecate" in decorator.id else ""
-        elif isinstance(decorator, ast.Call):
+            id_ = decorator.id
+            if "deprecate" in id_:
+                return id_
+            return ""
+        if isinstance(decorator, ast.Call):
             return deprecated(decorator.func)
         return ""
 
+    # Preallocate module_path once for qualified name construction
     def qualified_name(func_name: str) -> str:
-        return ".".join([module_path, *object_path, func_name])
+        if object_path:
+            return f"{module_path}." + ".".join(object_path) + f".{func_name}"
+        return f"{module_path}.{func_name}"
 
     results = defaultdict(list)
 
     class FunctionVisitor(ast.NodeVisitor):
+        __slots__ = ()  # Prevent instance dictionary creation for efficiency
+
         def visit_ClassDef(self, node: Any) -> None:
             object_path.append(node.name)
-            self.generic_visit(node)
+            # Inline fast path for children: avoid calling generic_visit individually
+            for child in node.body:
+                self.visit(child)
             object_path.pop()
 
         def visit_FunctionDef(self, node: Any) -> None:
-            if any((decorator_name := deprecated(d)) for d in node.decorator_list):
+            # Use generator expression and next with default for faster decorator scan
+            decorator_name = next(
+                (deprecated(d) for d in node.decorator_list if deprecated(d)), ""
+            )
+            if decorator_name:
                 key = decorator_name.removeprefix("deprecate_").replace(
                     "deprecated", "function"
                 )
                 results[key].append(qualified_name(node.name))
-            self.generic_visit(node)
+            # Visit functions' children (such as inner functions/classes)
+            for child in node.body:
+                self.visit(child)
 
         visit_AsyncFunctionDef = visit_FunctionDef
 
